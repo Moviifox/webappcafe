@@ -460,7 +460,7 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
 
 // --- DELETE CONFIRMATION MODAL ---
 const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
-    <div className="fixed inset-0 z-[300] backdrop-blur-sm flex items-end justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(255,255,255,0.5)' }}>
+    <div className="fixed inset-0 z-[300] backdrop-blur-sm flex items-end justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.5)' }}>
         <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
             <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500"><Trash2 size={36} strokeWidth={2} /></div>
             <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการลบ?</h3>
@@ -475,7 +475,7 @@ const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
 
 // --- LOGOUT CONFIRMATION MODAL ---
 const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
-    <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+    <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.5)' }}>
         <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
             <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
                 <LogOut size={36} strokeWidth={2} className="ml-1" />
@@ -1157,4 +1157,5 @@ const App = () => {
 
 
 export default App;
+
 
