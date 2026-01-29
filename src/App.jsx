@@ -356,7 +356,7 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
   const shouldShowTypeSelection = menu.typeOptions[0].label !== "ไม่มีตัวเลือก";
 
   return (
-    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
+    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.5)' }}>
       <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         <div className="relative h-64 flex-shrink-0">
           <img src={menu.image} className="w-full h-full object-cover" alt={menu.name} />
@@ -1157,5 +1157,6 @@ const App = () => {
 
 
 export default App;
+
 
 
