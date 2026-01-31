@@ -662,74 +662,116 @@ const PaymentFlowModal = ({
   };
 
   const handleSaveQR = async () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
 
-    // Set canvas size
-    canvas.width = 400;
-    canvas.height = 520;
+      // Set canvas size
+      canvas.width = 400;
+      canvas.height = 520;
 
-    // Background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Header bar
-    ctx.fillStyle = '#00704A';
-    ctx.fillRect(0, 0, canvas.width, 60);
+      // Header bar
+      ctx.fillStyle = '#00704A';
+      ctx.fillRect(0, 0, canvas.width, 60);
 
-    // Header text
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
+      // Header text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
 
-    // Load QR code image
-    const qrImg = new Image();
-    qrImg.crossOrigin = 'anonymous';
-    qrImg.src = `https://promptpay.io/0619961130/${finalTotal}`;
+      // Fetch QR code image via proxy to avoid CORS
+      const qrUrl = `https://promptpay.io/0619961130/${finalTotal}.png`;
 
-    await new Promise((resolve) => {
-      qrImg.onload = resolve;
-      qrImg.onerror = resolve;
-    });
+      try {
+        // Try fetching the QR as blob
+        const response = await fetch(qrUrl);
+        const blob = await response.blob();
+        const qrDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
 
-    // Draw QR code
-    const qrSize = 200;
-    const qrX = (canvas.width - qrSize) / 2;
-    const qrY = 80;
-    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+        // Load the QR image from data URL
+        const qrImg = new Image();
+        await new Promise((resolve, reject) => {
+          qrImg.onload = resolve;
+          qrImg.onerror = reject;
+          qrImg.src = qrDataUrl;
+        });
 
-    // Payment details section
-    ctx.fillStyle = '#f3f4f6';
-    ctx.fillRect(30, 300, canvas.width - 60, 120);
+        // Draw QR code
+        const qrSize = 200;
+        const qrX = (canvas.width - qrSize) / 2;
+        const qrY = 80;
+        ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+      } catch (e) {
+        // If fetch fails, draw placeholder text
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillRect(100, 80, 200, 200);
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '14px sans-serif';
+        ctx.fillText('QR Code', canvas.width / 2, 180);
+      }
 
-    // Amount label
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('ยอดชำระทั้งสิ้น', canvas.width / 2, 335);
+      // Payment details section
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(30, 300, canvas.width - 60, 120);
 
-    // Amount value
-    ctx.fillStyle = '#00704A';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillText(`฿${finalTotal.toLocaleString()}`, canvas.width / 2, 380);
+      // Amount label
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ยอดชำระทั้งสิ้น', canvas.width / 2, 335);
 
-    // Items count
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`${cart.length} รายการ`, canvas.width / 2, 405);
+      // Amount value
+      ctx.fillStyle = '#00704A';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillText(`฿${finalTotal.toLocaleString()}`, canvas.width / 2, 380);
 
-    // Footer
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', canvas.width / 2, 460);
-    ctx.fillText('My Cafe', canvas.width / 2, 480);
+      // Items count
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(`${cart.length} รายการ`, canvas.width / 2, 405);
 
-    // Download
-    const link = document.createElement('a');
-    link.download = `promptpay-${finalTotal}-baht.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+      // Footer
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', canvas.width / 2, 460);
+      ctx.fillText('My Cafe', canvas.width / 2, 480);
+
+      // Convert canvas to blob
+      const imageBlob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+
+      const fileName = `promptpay-${finalTotal}-baht.png`;
+      const file = new File([imageBlob], fileName, { type: 'image/png' });
+
+      // Try Web Share API first (works on mobile for saving to gallery)
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'PromptPay QR Code',
+          text: `ชำระเงิน ฿${finalTotal}`
+        });
+      } else {
+        // Fallback: Download for desktop
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = URL.createObjectURL(imageBlob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+    } catch (error) {
+      console.error('Error saving QR:', error);
+      alert('ไม่สามารถบันทึกรูปได้ กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   return (
