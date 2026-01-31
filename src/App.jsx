@@ -198,11 +198,11 @@ const PersistentHeader = ({ title, scrollProgress, onProfileClick }) => (
     <div className="absolute top-0 left-0 right-0 h-[60px]" 
       style={{ 
         background: `linear-gradient(to bottom, 
-          #ffffff 0%, 
-          ${alpha('#ffffff', '0.98')} 25%, 
-          ${alpha('#ffffff', '0.85')} 50%, 
-          ${alpha('#ffffff', '0.4')} 80%, 
-          ${alpha('#ffffff', '0')} 100%)` 
+          #fcfcfc 0%, 
+          ${alpha('#fcfcfc', '0.98')} 25%, 
+          ${alpha('#fcfcfc', '0.85')} 50%, 
+          ${alpha('#fcfcfc', '0.4')} 80%, 
+          ${alpha('#fcfcfc', '0')} 100%)` 
       }}
     />
     <div className="relative pt-4 pb-2 px-[18px] flex justify-between items-center"
@@ -1157,6 +1157,7 @@ const App = () => {
 
 
 export default App;
+
 
 
 
