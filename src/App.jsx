@@ -278,11 +278,11 @@ const PersistentHeader = ({ title, scrollProgress, onProfileClick, showOrderHist
       className="absolute top-0 left-0 right-0 h-[60px]"
       style={{
         background: `linear-gradient(to bottom,
-          #ffffff 0%,
-          ${alpha('#ffffff', '0.98')} 25%,
-          ${alpha('#ffffff', '0.85')} 50%,
-          ${alpha('#ffffff', '0.4')} 80%,
-          ${alpha('#ffffff', '0')} 100%)`,
+          #fcfcfc 0%,
+          ${alpha('#fcfcfc', '0.98')} 25%,
+          ${alpha('#fcfcfc', '0.85')} 50%,
+          ${alpha('#fcfcfc', '0.4')} 80%,
+          ${alpha('#fcfcfc', '0')} 100%)`,
       }}
     />
     <div
@@ -1008,7 +1008,7 @@ const SplashView = ({ onFinish }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-[500] flex flex-col overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ touchAction: 'none' }}>
+    <div className="fixed inset-0 bg-[#fcfcfc] z-[500] flex flex-col overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ touchAction: 'none' }}>
       <div className={`absolute top-8 right-8 z-10 transition-opacity duration-300 ${step === slides.length - 1 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <button onClick={onFinish} className="text-gray-400 font-bold text-sm">ข้าม</button>
       </div>
@@ -1952,3 +1952,4 @@ const App = () => {
 };
 
 export default App;
+
