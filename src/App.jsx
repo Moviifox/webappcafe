@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import QRCode from 'qrcode';
 import {
   Home,
   ShoppingBag,
@@ -684,40 +685,82 @@ const PaymentFlowModal = ({
       ctx.textAlign = 'center';
       ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
 
-      // Fetch QR code image via proxy to avoid CORS
-      const qrUrl = `https://promptpay.io/0619961130/${finalTotal}.png`;
+      // Generate PromptPay payload
+      const phoneNumber = '0619961130';
+      const formatPhoneForPromptPay = (phone) => {
+        // Convert to international format: 0619961130 -> 66619961130
+        if (phone.startsWith('0')) {
+          return '66' + phone.substring(1);
+        }
+        return phone;
+      };
 
-      try {
-        // Try fetching the QR as blob
-        const response = await fetch(qrUrl);
-        const blob = await response.blob();
-        const qrDataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
+      const formattedPhone = formatPhoneForPromptPay(phoneNumber);
 
-        // Load the QR image from data URL
-        const qrImg = new Image();
-        await new Promise((resolve, reject) => {
-          qrImg.onload = resolve;
-          qrImg.onerror = reject;
-          qrImg.src = qrDataUrl;
-        });
+      // Create PromptPay EMVCo QR Code payload
+      const createPromptPayPayload = (phone, amount) => {
+        // Simplified PromptPay payload
+        // Format: 00020101021129370016A000000677010111 + 01 + 13 + phone + 5303764 + 54 + amount + 5802TH + 6304 + checksum
+        const phoneField = `0213${phone}`;
+        const aid = '00160000000677010111';
+        const merchantInfo = `2937${aid}${phoneField}`;
 
-        // Draw QR code
-        const qrSize = 200;
-        const qrX = (canvas.width - qrSize) / 2;
-        const qrY = 80;
-        ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-      } catch (e) {
-        // If fetch fails, draw placeholder text
-        ctx.fillStyle = '#e5e7eb';
-        ctx.fillRect(100, 80, 200, 200);
-        ctx.fillStyle = '#6b7280';
-        ctx.font = '14px sans-serif';
-        ctx.fillText('QR Code', canvas.width / 2, 180);
-      }
+        let payload = `000201010211${merchantInfo}5303764`;
+
+        if (amount && amount > 0) {
+          const amountStr = amount.toFixed(2);
+          const amountLen = amountStr.length.toString().padStart(2, '0');
+          payload += `54${amountLen}${amountStr}`;
+        }
+
+        payload += '5802TH6304';
+
+        // Calculate CRC16 checksum
+        const crc16 = (str) => {
+          let crc = 0xFFFF;
+          for (let i = 0; i < str.length; i++) {
+            crc ^= str.charCodeAt(i) << 8;
+            for (let j = 0; j < 8; j++) {
+              if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+              } else {
+                crc <<= 1;
+              }
+            }
+            crc &= 0xFFFF;
+          }
+          return crc.toString(16).toUpperCase().padStart(4, '0');
+        };
+
+        payload += crc16(payload);
+        return payload;
+      };
+
+      const promptPayPayload = createPromptPayPayload(formattedPhone, finalTotal);
+
+      // Generate QR code using the library
+      const qrDataUrl = await QRCode.toDataURL(promptPayPayload, {
+        width: 200,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+
+      // Load QR image
+      const qrImg = new Image();
+      await new Promise((resolve, reject) => {
+        qrImg.onload = resolve;
+        qrImg.onerror = reject;
+        qrImg.src = qrDataUrl;
+      });
+
+      // Draw QR code
+      const qrSize = 200;
+      const qrX = (canvas.width - qrSize) / 2;
+      const qrY = 80;
+      ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
 
       // Payment details section
       ctx.fillStyle = '#f3f4f6';
@@ -775,7 +818,7 @@ const PaymentFlowModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[320] flex items-end justify-center bg-black/30 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[320] flex items-end justify-center bg-[252,252,252,0.2] backdrop-blur-sm">
       <div className="w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
           <button onClick={step === 'selection' ? onClose : onBack} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
