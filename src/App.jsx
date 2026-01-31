@@ -662,7 +662,7 @@ const PaymentFlowModal = ({
   };
 
   const handleSaveQR = async () => {
-    const qrUrl = `https://promptpay.io/0619961130/${finalTotal}.png`;
+    const qrUrl = `https://promptpay.io/0619961130/${finalTotal}`;
 
     try {
       const canvas = document.createElement('canvas');
@@ -676,73 +676,112 @@ const PaymentFlowModal = ({
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Header
+      // Header bar
       ctx.fillStyle = '#00704A';
       ctx.fillRect(0, 0, canvas.width, 70);
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 18px sans-serif';
+      ctx.font = '600 18px Foxgraphie, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(`ชำระเงินผ่าน PromptPay #${orderNumber}`, 200, 42);
 
-      // QR payload
-      const phone = '0619961130';
-      const formattedPhone = '66' + phone.substring(1);
-      const f = (id, val) => id + val.length.toString().padStart(2, '0') + val;
-      const merchantAcctInfo = f('00', 'A000000677010111') + f('01', formattedPhone);
-      let data = f('00', '01') + f('01', '11') + f('29', merchantAcctInfo) + f('53', '764');
-      if (finalTotal > 0) data += f('54', finalTotal.toFixed(2));
-      data += f('58', 'TH') + '6304';
-      let crc = 0xFFFF;
-      for (let i = 0; i < data.length; i++) {
-        crc ^= data.charCodeAt(i) << 8;
-        for (let j = 0; j < 8; j++) crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
-        crc &= 0xFFFF;
-      }
-      data += crc.toString(16).toUpperCase().padStart(4, '0');
-
-      // Load QR
-      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
+      // Try loading QR from promptpay.io (same as app display)
+      // Use a CORS proxy if direct loading fails
       const qrImg = new Image();
       qrImg.crossOrigin = 'anonymous';
 
-      const loadResult = await Promise.race([
-        new Promise(res => { qrImg.onload = () => res(true); qrImg.onerror = () => res(false); qrImg.src = qrApiUrl; }),
-        new Promise(res => setTimeout(() => res(false), 8000))
-      ]);
+      let qrLoaded = false;
+      try {
+        // Try direct load first
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+          qrImg.onload = () => { clearTimeout(timeout); qrLoaded = true; resolve(); };
+          qrImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
+          qrImg.src = qrUrl;
+        });
+      } catch {
+        // Fallback: use QR server API with same phone/amount format
+        const data = `https://promptpay.io/0619961130/${finalTotal}`;
+        const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
+        try {
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+            qrImg.onload = () => { clearTimeout(timeout); qrLoaded = true; resolve(); };
+            qrImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
+            qrImg.src = fallbackUrl;
+          });
+        } catch {
+          qrLoaded = false;
+        }
+      }
 
-      if (loadResult) {
+      // Draw QR code
+      if (qrLoaded) {
         ctx.drawImage(qrImg, 100, 90, 200, 200);
       }
 
-      // Payment details
+      // Payment details section
       ctx.fillStyle = '#f3f4f6';
       ctx.fillRect(30, 320, 340, 140);
+
       ctx.fillStyle = '#6b7280';
-      ctx.font = '14px sans-serif';
+      ctx.font = '400 14px Foxgraphie, sans-serif';
+      ctx.textAlign = 'center';
       ctx.fillText('ยอดชำระทั้งสิ้น', 200, 360);
+
       ctx.fillStyle = '#00704A';
-      ctx.font = 'bold 40px sans-serif';
+      ctx.font = '700 40px Foxgraphie, sans-serif';
       ctx.fillText(`฿${finalTotal.toLocaleString()}`, 200, 410);
+
       ctx.fillStyle = '#9ca3af';
-      ctx.font = '13px sans-serif';
+      ctx.font = '400 13px Foxgraphie, sans-serif';
       ctx.fillText(`${cart.length} รายการ`, 200, 440);
-      ctx.font = '12px sans-serif';
+
+      ctx.font = '400 12px Foxgraphie, sans-serif';
       ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', 200, 500);
+
+      // Load and draw icon
+      const iconImg = new Image();
+      let iconLoaded = false;
+      try {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('timeout')), 3000);
+          iconImg.onload = () => { clearTimeout(timeout); iconLoaded = true; resolve(); };
+          iconImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
+          iconImg.src = '/icon/qr_slip.svg';
+        });
+      } catch {
+        iconLoaded = false;
+      }
+
+      // App name with icon
+      const appName = 'My Cafe';
       ctx.fillStyle = '#00704A';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('☕ My Cafe', 200, 535);
+      ctx.font = '700 20px Foxgraphie, sans-serif';
+      const textWidth = ctx.measureText(appName).width;
+
+      if (iconLoaded) {
+        const iconSize = 28;
+        const totalWidth = iconSize + 8 + textWidth;
+        const startX = (400 - totalWidth) / 2;
+        ctx.drawImage(iconImg, startX, 517, iconSize, iconSize);
+        ctx.textAlign = 'left';
+        ctx.fillText(appName, startX + iconSize + 8, 540);
+      } else {
+        ctx.textAlign = 'center';
+        ctx.fillText('☕ ' + appName, 200, 540);
+      }
 
       // Get blob
       const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-      if (!blob) { window.open(qrUrl, '_blank'); return; }
+      if (!blob) { window.open(qrUrl + '.png', '_blank'); return; }
 
       const file = new File([blob], `qr-${orderNumber}.png`, { type: 'image/png' });
 
-      // Mobile: use Web Share
+      // Mobile: use Web Share to save to Photos
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
       } else {
-        // Desktop: download
+        // Desktop: download file
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = file.name;
@@ -752,7 +791,7 @@ const PaymentFlowModal = ({
       }
     } catch (e) {
       console.error(e);
-      window.open(qrUrl, '_blank');
+      window.open(qrUrl + '.png', '_blank');
     }
   };
 
