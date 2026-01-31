@@ -32,7 +32,8 @@ import {
   CircleDollarSign,
   Receipt,
   FileWarning,
-  BadgeCheck
+  BadgeCheck,
+  Download
 } from 'lucide-react';
 
 // ฟังก์ชันช่วยจัดการสีโปร่งแสง
@@ -660,6 +661,77 @@ const PaymentFlowModal = ({
     event.target.value = '';
   };
 
+  const handleSaveQR = async () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas size
+    canvas.width = 400;
+    canvas.height = 520;
+
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Header bar
+    ctx.fillStyle = '#00704A';
+    ctx.fillRect(0, 0, canvas.width, 60);
+
+    // Header text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
+
+    // Load QR code image
+    const qrImg = new Image();
+    qrImg.crossOrigin = 'anonymous';
+    qrImg.src = `https://promptpay.io/0619961130/${finalTotal}`;
+
+    await new Promise((resolve) => {
+      qrImg.onload = resolve;
+      qrImg.onerror = resolve;
+    });
+
+    // Draw QR code
+    const qrSize = 200;
+    const qrX = (canvas.width - qrSize) / 2;
+    const qrY = 80;
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+    // Payment details section
+    ctx.fillStyle = '#f3f4f6';
+    ctx.fillRect(30, 300, canvas.width - 60, 120);
+
+    // Amount label
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ยอดชำระทั้งสิ้น', canvas.width / 2, 335);
+
+    // Amount value
+    ctx.fillStyle = '#00704A';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText(`฿${finalTotal.toLocaleString()}`, canvas.width / 2, 380);
+
+    // Items count
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`${cart.length} รายการ`, canvas.width / 2, 405);
+
+    // Footer
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', canvas.width / 2, 460);
+    ctx.fillText('My Cafe', canvas.width / 2, 480);
+
+    // Download
+    const link = document.createElement('a');
+    link.download = `promptpay-${finalTotal}-baht.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
   return (
     <div className="fixed inset-0 z-[320] flex items-end justify-center bg-black/30 backdrop-blur-sm">
       <div className="w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
@@ -803,16 +875,28 @@ const PaymentFlowModal = ({
                 <PaymentSummaryRow label="ยอดชำระ" value={formatBaht(finalTotal)} highlight />
               </div>
               <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4">
-                <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center">
-                  <QrCode size={120} className="text-[#00704A]" />
+                <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
+                  <img
+                    src={`https://promptpay.io/0619961130/${finalTotal}`}
+                    alt="PromptPay QR Code"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
                 <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
-                <button
-                  onClick={handleSlipButton}
-                  className="flex items-center gap-2 px-6 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
-                >
-                  <UploadCloud size={18} /> แนบสลิป
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleSaveQR}
+                    className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
+                  >
+                    <Download size={18} /> บันทึกรูป
+                  </button>
+                  <button
+                    onClick={handleSlipButton}
+                    className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+                  >
+                    <UploadCloud size={18} /> แนบสลิป
+                  </button>
+                </div>
                 {slipFileName && <p className="text-xs font-bold text-gray-400">ไฟล์: {slipFileName}</p>}
                 {slipError && (
                   <div className="flex flex-col items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
@@ -1953,7 +2037,3 @@ const App = () => {
 };
 
 export default App;
-
-
-
-
