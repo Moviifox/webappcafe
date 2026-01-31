@@ -684,34 +684,59 @@ const PaymentFlowModal = ({
       ctx.textAlign = 'center';
       ctx.fillText(`ชำระเงินผ่าน PromptPay #${orderNumber}`, 200, 42);
 
-      // Try loading QR from promptpay.io (same as app display)
-      // Use a CORS proxy if direct loading fails
+      // Generate PromptPay EMVCo payload (matches promptpay.io format exactly)
+      const generatePromptPayPayload = (phone, amount) => {
+        // Format phone: 0619961130 -> 0066619961130
+        const sanitizedPhone = phone.replace(/\D/g, '');
+        const formattedPhone = '0066' + sanitizedPhone.substring(1);
+
+        const f = (id, val) => id + val.length.toString().padStart(2, '0') + val;
+
+        // Build payload exactly like promptpay.io
+        const aid = f('00', 'A000000677010111');
+        const mobile = f('01', formattedPhone);
+        const merchantAccount = f('29', aid + mobile);
+
+        let payloadWithoutCrc = f('00', '01'); // Payload format indicator
+        payloadWithoutCrc += f('01', '11'); // Static QR (11) not dynamic (12)
+        payloadWithoutCrc += merchantAccount;
+        payloadWithoutCrc += f('53', '764'); // Currency THB
+
+        if (amount && amount > 0) {
+          payloadWithoutCrc += f('54', amount.toFixed(2));
+        }
+
+        payloadWithoutCrc += f('58', 'TH'); // Country
+        payloadWithoutCrc += '6304'; // CRC placeholder
+
+        // CRC16-CCITT (same as promptpay.io)
+        let crc = 0xFFFF;
+        for (let i = 0; i < payloadWithoutCrc.length; i++) {
+          crc ^= payloadWithoutCrc.charCodeAt(i) << 8;
+          for (let j = 0; j < 8; j++) {
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+            crc &= 0xFFFF;
+          }
+        }
+        return payloadWithoutCrc + crc.toString(16).toUpperCase().padStart(4, '0');
+      };
+
+      const promptPayData = generatePromptPayPayload('0619961130', finalTotal);
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(promptPayData)}`;
+
       const qrImg = new Image();
       qrImg.crossOrigin = 'anonymous';
 
       let qrLoaded = false;
       try {
-        // Try direct load first
         await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+          const timeout = setTimeout(() => reject(new Error('timeout')), 8000);
           qrImg.onload = () => { clearTimeout(timeout); qrLoaded = true; resolve(); };
           qrImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
-          qrImg.src = qrUrl;
+          qrImg.src = qrApiUrl;
         });
       } catch {
-        // Fallback: use QR server API with same phone/amount format
-        const data = `https://promptpay.io/0619961130/${finalTotal}`;
-        const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data)}`;
-        try {
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
-            qrImg.onload = () => { clearTimeout(timeout); qrLoaded = true; resolve(); };
-            qrImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
-            qrImg.src = fallbackUrl;
-          });
-        } catch {
-          qrLoaded = false;
-        }
+        qrLoaded = false;
       }
 
       // Draw QR code
