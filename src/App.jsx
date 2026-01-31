@@ -661,10 +661,126 @@ const PaymentFlowModal = ({
     event.target.value = '';
   };
 
-  const handleSaveQR = () => {
-    // Open QR code in new tab - user can long-press/right-click to save
-    const qrUrl = `https://promptpay.io/0619961130/${finalTotal}.png`;
-    window.open(qrUrl, '_blank');
+  const handleSaveQR = async () => {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // Set canvas size
+      canvas.width = 400;
+      canvas.height = 550;
+
+      // Background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Header bar
+      ctx.fillStyle = '#00704A';
+      ctx.fillRect(0, 0, canvas.width, 60);
+
+      // Header text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
+
+      // Generate PromptPay payload
+      const phoneNumber = '0619961130';
+      const formattedPhone = '66' + phoneNumber.substring(1); // 66619961130
+
+      // Create PromptPay payload
+      const phoneField = `0213${formattedPhone}`;
+      const aid = '00160000000677010111';
+      const merchantInfo = `2937${aid}${phoneField}`;
+      let payload = `000201010211${merchantInfo}5303764`;
+
+      if (finalTotal > 0) {
+        const amountStr = finalTotal.toFixed(2);
+        const amountLen = amountStr.length.toString().padStart(2, '0');
+        payload += `54${amountLen}${amountStr}`;
+      }
+      payload += '5802TH6304';
+
+      // CRC16 checksum
+      let crc = 0xFFFF;
+      for (let i = 0; i < payload.length; i++) {
+        crc ^= payload.charCodeAt(i) << 8;
+        for (let j = 0; j < 8; j++) {
+          crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+          crc &= 0xFFFF;
+        }
+      }
+      payload += crc.toString(16).toUpperCase().padStart(4, '0');
+
+      // Use CORS-friendly QR API
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(payload)}`;
+
+      // Load QR image
+      const qrImg = new Image();
+      qrImg.crossOrigin = 'anonymous';
+
+      await new Promise((resolve, reject) => {
+        qrImg.onload = resolve;
+        qrImg.onerror = reject;
+        qrImg.src = qrApiUrl;
+      });
+
+      // Draw QR code
+      const qrSize = 200;
+      const qrX = (canvas.width - qrSize) / 2;
+      const qrY = 80;
+      ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+      // Payment details section
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(30, 310, canvas.width - 60, 130);
+
+      // Amount label
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ยอดชำระทั้งสิ้น', canvas.width / 2, 350);
+
+      // Amount value
+      ctx.fillStyle = '#00704A';
+      ctx.font = 'bold 40px sans-serif';
+      ctx.fillText(`฿${finalTotal.toLocaleString()}`, canvas.width / 2, 400);
+
+      // Items count
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(`${cart.length} รายการ`, canvas.width / 2, 425);
+
+      // Footer
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', canvas.width / 2, 490);
+      ctx.fillText('My Cafe', canvas.width / 2, 510);
+
+      // Convert to blob
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const fileName = `promptpay-${finalTotal}-baht.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      // Try Web Share API (for mobile to save to gallery)
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'PromptPay QR',
+        });
+      } else {
+        // Fallback: download
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+    } catch (error) {
+      console.error('Error saving QR:', error);
+      // Fallback: open in new tab
+      window.open(`https://promptpay.io/0619961130/${finalTotal}.png`, '_blank');
+    }
   };
 
   return (
