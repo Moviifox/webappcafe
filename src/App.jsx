@@ -1052,7 +1052,7 @@ const LoginView = ({ onLoginSuccess }) => {
     }, 1000);
   };
   return (
-    <div className="fixed inset-0 bg-[#FDFDFD] z-[400] pb-20 flex flex-col p-8 justify-center">
+    <div className="fixed inset-0 bg-[#FDFDFD] z-[400] pb-30 flex flex-col p-8 justify-center">
       <div className="mb-12">
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}><Coffee size={32} /></div>
         <h1 className="text-4xl font-black text-gray-900 mb-2">ยินดีต้อนรับ</h1>
@@ -1952,5 +1952,6 @@ const App = () => {
 };
 
 export default App;
+
 
 
