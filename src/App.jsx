@@ -2074,7 +2074,7 @@ const MainApp = ({ onLogout }) => {
         </div>
       )}
 
-      {/* Global Styles */}
+      {/* Global Styles*/}
       <GlobalStyles />
     </div>
   );
@@ -2122,3 +2122,4 @@ const App = () => {
 };
 
 export default App;
+
