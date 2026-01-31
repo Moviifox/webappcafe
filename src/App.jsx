@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import QRCode from 'qrcode';
 import {
   Home,
   ShoppingBag,
@@ -662,159 +661,10 @@ const PaymentFlowModal = ({
     event.target.value = '';
   };
 
-  const handleSaveQR = async () => {
-    try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      // Set canvas size
-      canvas.width = 400;
-      canvas.height = 520;
-
-      // Background
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Header bar
-      ctx.fillStyle = '#00704A';
-      ctx.fillRect(0, 0, canvas.width, 60);
-
-      // Header text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 20px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('ชำระเงินผ่าน PromptPay', canvas.width / 2, 38);
-
-      // Generate PromptPay payload
-      const phoneNumber = '0619961130';
-      const formatPhoneForPromptPay = (phone) => {
-        // Convert to international format: 0619961130 -> 66619961130
-        if (phone.startsWith('0')) {
-          return '66' + phone.substring(1);
-        }
-        return phone;
-      };
-
-      const formattedPhone = formatPhoneForPromptPay(phoneNumber);
-
-      // Create PromptPay EMVCo QR Code payload
-      const createPromptPayPayload = (phone, amount) => {
-        // Simplified PromptPay payload
-        // Format: 00020101021129370016A000000677010111 + 01 + 13 + phone + 5303764 + 54 + amount + 5802TH + 6304 + checksum
-        const phoneField = `0213${phone}`;
-        const aid = '00160000000677010111';
-        const merchantInfo = `2937${aid}${phoneField}`;
-
-        let payload = `000201010211${merchantInfo}5303764`;
-
-        if (amount && amount > 0) {
-          const amountStr = amount.toFixed(2);
-          const amountLen = amountStr.length.toString().padStart(2, '0');
-          payload += `54${amountLen}${amountStr}`;
-        }
-
-        payload += '5802TH6304';
-
-        // Calculate CRC16 checksum
-        const crc16 = (str) => {
-          let crc = 0xFFFF;
-          for (let i = 0; i < str.length; i++) {
-            crc ^= str.charCodeAt(i) << 8;
-            for (let j = 0; j < 8; j++) {
-              if (crc & 0x8000) {
-                crc = (crc << 1) ^ 0x1021;
-              } else {
-                crc <<= 1;
-              }
-            }
-            crc &= 0xFFFF;
-          }
-          return crc.toString(16).toUpperCase().padStart(4, '0');
-        };
-
-        payload += crc16(payload);
-        return payload;
-      };
-
-      const promptPayPayload = createPromptPayPayload(formattedPhone, finalTotal);
-
-      // Generate QR code using the library
-      const qrDataUrl = await QRCode.toDataURL(promptPayPayload, {
-        width: 200,
-        margin: 1,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      });
-
-      // Load QR image
-      const qrImg = new Image();
-      await new Promise((resolve, reject) => {
-        qrImg.onload = resolve;
-        qrImg.onerror = reject;
-        qrImg.src = qrDataUrl;
-      });
-
-      // Draw QR code
-      const qrSize = 200;
-      const qrX = (canvas.width - qrSize) / 2;
-      const qrY = 80;
-      ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-
-      // Payment details section
-      ctx.fillStyle = '#f3f4f6';
-      ctx.fillRect(30, 300, canvas.width - 60, 120);
-
-      // Amount label
-      ctx.fillStyle = '#6b7280';
-      ctx.font = '14px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('ยอดชำระทั้งสิ้น', canvas.width / 2, 335);
-
-      // Amount value
-      ctx.fillStyle = '#00704A';
-      ctx.font = 'bold 36px sans-serif';
-      ctx.fillText(`฿${finalTotal.toLocaleString()}`, canvas.width / 2, 380);
-
-      // Items count
-      ctx.fillStyle = '#9ca3af';
-      ctx.font = '12px sans-serif';
-      ctx.fillText(`${cart.length} รายการ`, canvas.width / 2, 405);
-
-      // Footer
-      ctx.fillStyle = '#9ca3af';
-      ctx.font = '11px sans-serif';
-      ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', canvas.width / 2, 460);
-      ctx.fillText('My Cafe', canvas.width / 2, 480);
-
-      // Convert canvas to blob
-      const imageBlob = await new Promise((resolve) => {
-        canvas.toBlob(resolve, 'image/png');
-      });
-
-      const fileName = `promptpay-${finalTotal}-baht.png`;
-      const file = new File([imageBlob], fileName, { type: 'image/png' });
-
-      // Try Web Share API first (works on mobile for saving to gallery)
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'PromptPay QR Code',
-          text: `ชำระเงิน ฿${finalTotal}`
-        });
-      } else {
-        // Fallback: Download for desktop
-        const link = document.createElement('a');
-        link.download = fileName;
-        link.href = URL.createObjectURL(imageBlob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-      }
-    } catch (error) {
-      console.error('Error saving QR:', error);
-      alert('ไม่สามารถบันทึกรูปได้ กรุณาลองใหม่อีกครั้ง');
-    }
+  const handleSaveQR = () => {
+    // Open QR code in new tab - user can long-press/right-click to save
+    const qrUrl = `https://promptpay.io/0619961130/${finalTotal}.png`;
+    window.open(qrUrl, '_blank');
   };
 
   return (
@@ -2074,7 +1924,7 @@ const MainApp = ({ onLogout }) => {
         </div>
       )}
 
-      {/* Global Styles*/}
+      {/* Global Styles */}
       <GlobalStyles />
     </div>
   );
@@ -2122,4 +1972,3 @@ const App = () => {
 };
 
 export default App;
-
