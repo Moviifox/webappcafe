@@ -380,6 +380,56 @@ const StickySearchBar = React.memo(({ value, onChange, onFocus, onBlur, placehol
   </div>
 ));
 
+// --- IMAGE CACHING UTILS ---
+const imageCache = new Map();
+
+const CachedImage = ({ src, alt, className, style, onClick, ...props }) => {
+  const cachedUrl = imageCache.get(src);
+  const [imageSrc, setImageSrc] = useState(cachedUrl || src);
+  const [isLoaded, setIsLoaded] = useState(!!cachedUrl);
+
+  useEffect(() => {
+    if (!src) return;
+
+    if (imageCache.has(src)) {
+      if (imageSrc !== imageCache.get(src)) {
+        setImageSrc(imageCache.get(src));
+        setIsLoaded(true);
+      }
+      return;
+    }
+
+    let isMounted = true;
+    const fetchImage = async () => {
+      try {
+        const response = await fetch(src, { mode: 'cors' });
+        if (!response.ok) throw new Error('Network response was not ok');
+        const blob = await response.blob();
+        if (isMounted) {
+          const objectUrl = URL.createObjectURL(blob);
+          imageCache.set(src, objectUrl);
+          setImageSrc(objectUrl);
+          setIsLoaded(true);
+        }
+      } catch (e) {
+        console.warn("Failed to cache image, falling back to src:", e);
+        if (isMounted) {
+          setImageSrc(src);
+          setIsLoaded(true);
+        }
+      }
+    };
+
+    fetchImage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [src]);
+
+  return <img src={imageSrc} alt={alt} className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`} style={style} onClick={onClick} {...props} />;
+};
+
 const MenuCard = React.memo(({ menu, onSelect }) => {
   const displayPrice = menu.typeOptions && menu.typeOptions.length > 0 ? menu.typeOptions[0].price : 0;
   const hasDiscount = menu.discount > 0;
@@ -388,7 +438,7 @@ const MenuCard = React.memo(({ menu, onSelect }) => {
     <div className="flex flex-col group cursor-pointer">
       <div className="relative aspect-square mb-3">
         <div className="w-full h-full rounded-[24px] overflow-hidden shadow-sm bg-gray-100">
-          <img
+          <CachedImage
             src={menu.image}
             alt={menu.name}
             className="w-full h-full object-cover object-center group-active:scale-110 transition-transform duration-700"
@@ -439,7 +489,7 @@ const MenuCard = React.memo(({ menu, onSelect }) => {
 const NewsCard = React.memo(({ item }) => (
   <div className="w-full rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white mb-6 relative group">
     <div className="aspect-[16/8] overflow-hidden">
-      <img src={item.image} className="w-full h-full object-cover group-active:scale-105 transition-transform duration-700" alt={item.title} loading="lazy" />
+      <CachedImage src={item.image} className="w-full h-full object-cover group-active:scale-105 transition-transform duration-700" alt={item.title} loading="lazy" />
     </div>
     <div className="p-6">
       <div className="flex items-center gap-2 mb-2">
@@ -502,7 +552,7 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
     <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
       <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] max-h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
         <div className="relative h-64 flex-shrink-0">
-          <img src={menu.image} className="w-full h-full object-cover" alt={menu.name} />
+          <CachedImage src={menu.image} className="w-full h-full object-cover" alt={menu.name} />
           <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/50 to-transparent"></div>
           {menu.isRecommended && (
             <div className="absolute top-6 left-6 backdrop-blur-md text-white text-[14px] pl-[14px] pr-[10px] pt-[6px] pb-[5px] rounded-2xl font-bold shadow-sm z-10 uppercase tracking-wider" style={{ backgroundColor: alpha('#00704A', '0.85') }}>
@@ -645,7 +695,8 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
         <LogOut size={36} strokeWidth={2} className="ml-1" />
       </div>
       <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการออกจากระบบ?</h3>
-      <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">คุณต้องการออกจากระบบใช่หรือไม่</p>
+      <p className="text-gray-500 text-sm leading-relaxed font-medium">คุณต้องการออกจากระบบใช่หรือไม่</p>
+      <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">การออกจาระบบส่งผลให้รายการในออเดอร์ของคุณถูกลบ</p>
       <div className="flex gap-3">
         <button onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-100 active:scale-95 transition-transform">ยกเลิก</button>
         <button onClick={onConfirm} className="flex-1 py-4 rounded-2xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 active:scale-95 transition-transform">ออกเลย</button>
@@ -2377,6 +2428,9 @@ const MainApp = ({ onLogout, currentUser }) => {
       setIsRefreshing(true);
       setPullDistance(60);
 
+      // Clear image cache on refresh
+      imageCache.clear();
+
       // Fetch fresh data from Supabase
       await fetchData();
 
@@ -2863,7 +2917,7 @@ const MainApp = ({ onLogout, currentUser }) => {
               : currentPage === 'search'
                 ? 'ค้นหา'
                 : currentPage === 'order'
-                  ? 'รายการสั่ง'
+                  ? 'ออเดอร์ของฉัน'
                   : 'ประวัติออเดอร์'
         }
         scrollProgress={scrollProgress}
@@ -2910,7 +2964,7 @@ const MainApp = ({ onLogout, currentUser }) => {
                     onClick={() => setSelectedNews(n)}
                     className="w-[280px] min-w-[280px] h-48 relative rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white flex-shrink-0 text-left active:scale-[0.98] transition-transform"
                   >
-                    <img src={n.image} className="w-full h-full object-cover" alt={n.title} />
+                    <CachedImage src={n.image} className="w-full h-full object-cover" alt={n.title} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-6 flex flex-col justify-end text-white">
                       <h3 className="font-bold text-lg leading-tight">{n.title}</h3>
                       <p className="text-white/70 text-xs mt-1 line-clamp-1">{n.content}</p>
@@ -3093,7 +3147,7 @@ const MainApp = ({ onLogout, currentUser }) => {
                 </div>
               </div>
             ))}
-            {cart.length === 0 && <EmptyState icon={ShoppingBag} title="ตะกร้าว่างเปล่า" description="ลองเลือกเมนูที่คุณถูกใจเพิ่มลงในตะกร้าสิ" />}
+            {cart.length === 0 && <EmptyState icon={ShoppingBag} title="ไม่มีรายการในออเดอร์ของคุณ" description="เลือกเมนูที่ถูกใจเพิ่มลงในออเดอร์เลย" />}
           </div>
         )}
       </main>
