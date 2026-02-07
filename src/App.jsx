@@ -1631,7 +1631,13 @@ const NOTIFICATION_STATUS_META = {
   completed: { icon: '🎉', label: 'ออเดอร์สำเร็จ', color: '#8b5cf6' },
 };
 
-const NotificationModal = ({ notifications, visible, onClose, onViewOrder }) => {
+const NotificationModal = ({ notifications, visible, onClose, onViewOrder, onOpen }) => {
+  useEffect(() => {
+    if (visible && onOpen) {
+      onOpen();
+    }
+  }, [visible, onOpen]);
+
   if (!visible) return null;
 
   return (
@@ -1654,7 +1660,7 @@ const NotificationModal = ({ notifications, visible, onClose, onViewOrder }) => 
                 return (
                   <button
                     key={notif.id || index}
-                    onClick={() => onViewOrder && onViewOrder(notif.orderId)}
+                    onClick={() => onViewOrder && onViewOrder(notif.order_id || notif.orderId)}
                     className={`w-full rounded-[20px] p-4 text-left active:scale-[0.99] transition-all border ${notif.read ? 'bg-white border-gray-100' : 'bg-[#00704A]/5 border-[#00704A]/20'}`}
                   >
                     <div className="flex gap-3">
@@ -1663,13 +1669,13 @@ const NotificationModal = ({ notifications, visible, onClose, onViewOrder }) => 
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-black text-gray-900 truncate">ออเดอร์ #{notif.orderId}</p>
+                          <p className="text-sm font-black text-gray-900 truncate">ออเดอร์ #{notif.order_id || notif.orderId}</p>
                           {!notif.read && (
                             <span className="w-2 h-2 rounded-full bg-[#00704A] flex-shrink-0" />
                           )}
                         </div>
                         <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
-                        <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.createdAt)}</p>
+                        <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.created_at || notif.createdAt)}</p>
                       </div>
                     </div>
                   </button>
@@ -2064,6 +2070,13 @@ const MainApp = ({ onLogout, currentUser }) => {
         }
       });
 
+      // Fetch notifications
+      const { data: notificationsData } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', currentUser?.id)
+        .order('created_at', { ascending: false });
+
       setDbMenus(transformedMenus);
       setDbCategories(categoriesData || []);
       setDbAddons(addonsData || []);
@@ -2078,6 +2091,7 @@ const MainApp = ({ onLogout, currentUser }) => {
       setDbPromotions(promotionsData || []);
       setOrders(transformedOrders);
       setPromotionUsage(usageMap);
+      setNotifications(notificationsData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -2108,10 +2122,11 @@ const MainApp = ({ onLogout, currentUser }) => {
   }, [currentUser]);
 
   // Realtime subscription for orders
+  // Realtime subscription for orders and notifications
   useEffect(() => {
     if (!currentUser) return;
 
-    const channel = supabase
+    const ordersChannel = supabase
       .channel('orders-realtime')
       .on(
         'postgres_changes',
@@ -2158,26 +2173,32 @@ const MainApp = ({ onLogout, currentUser }) => {
             );
             // Show push notification when order status changes
             showOrderStatusNotification(payload.new.id, payload.new.status);
-            // Add to in-app notifications
-            setNotifications((prev) => [
-              {
-                id: `${payload.new.id}-${Date.now()}`,
-                orderId: payload.new.id,
-                status: payload.new.status,
-                createdAt: new Date().toISOString(),
-                read: false,
-              },
-              ...prev,
-            ]);
-          } else if (payload.eventType === 'DELETE') {
-            setOrders((prev) => prev.filter((order) => order.id !== payload.old.id));
           }
         }
       )
       .subscribe();
 
+    // Listen to notifications changes
+    const notificationsChannel = supabase
+      .channel('notifications-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${currentUser.id}`,
+        },
+        (payload) => {
+          console.log('Realtime notification:', payload);
+          setNotifications((prev) => [payload.new, ...prev]);
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(notificationsChannel);
     };
   }, [currentUser]);
 
@@ -2782,6 +2803,38 @@ const MainApp = ({ onLogout, currentUser }) => {
     }
   };
 
+  const handleOpenNotification = () => {
+    // Just open modal, do not mark as read yet
+    setShowNotifications(true);
+  };
+
+  const handleViewOrderFromNotification = async (orderId) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (order) {
+      setFocusedOrder(order);
+      setShowOrderDetail(true);
+
+      // 1. Update local state immediately for UI feedback
+      setNotifications((prev) => prev.map((n) => (n.order_id === orderId || n.orderId === orderId) ? { ...n, read: true } : n));
+
+      // 2. Update Supabase in background
+      // Find notification ID(s) associated with this order
+      const targetNotifs = notifications.filter(n => (n.order_id === orderId || n.orderId === orderId) && !n.read);
+      const targetIds = targetNotifs.map(n => n.id);
+
+      if (targetIds.length > 0) {
+        try {
+          await supabase
+            .from('notifications')
+            .update({ read: true })
+            .in('id', targetIds);
+        } catch (error) {
+          console.error('Error marking notification as read:', error);
+        }
+      }
+    }
+  };
+
   const handleLogout = () => {
     setShowLogoutConfirm(false);
     // เคลียร์การแจ้งเตือนเมื่อออกจากระบบ
@@ -3133,19 +3186,9 @@ const MainApp = ({ onLogout, currentUser }) => {
       <NotificationModal
         visible={showNotifications}
         notifications={notifications}
-        onClose={() => {
-          setShowNotifications(false);
-          // ไม่ mark as read เมื่อปิด - จะ mark เฉพาะเมื่อกดดูรายการนั้นๆ เท่านั้น
-        }}
-        onViewOrder={(orderId) => {
-          const order = orders.find((o) => o.id === orderId);
-          if (order) {
-            setFocusedOrder(order);
-            setShowOrderDetail(true);
-            // ไม่ปิด notification modal เพื่อให้ order detail แสดงทับไป
-            setNotifications((prev) => prev.map((n) => n.orderId === orderId ? { ...n, read: true } : n));
-          }
-        }}
+        onClose={() => setShowNotifications(false)}
+        onOpen={handleOpenNotification}
+        onViewOrder={handleViewOrderFromNotification}
       />
 
       {selectedMenu && <MenuDetailModal menu={selectedMenu} onClose={() => setSelectedMenu(null)} onConfirm={(item) => handleAddToCart(item)} />}

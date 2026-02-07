@@ -37,17 +37,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        // globPatterns default is including js, css, html
-        // globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        cleanupOutdatedCaches: true,
-      },
-      // Use injectManifest to use custom service worker
-      strategies: 'injectManifest',
-      srcDir: 'src',
-      filename: 'sw.js',
-      devOptions: {
-        enabled: true,
-        type: 'module',
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
     })
   ],
