@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
+import { supabase } from './supabaseClient';
+import {
+  isPushSupported,
+  requestNotificationPermission,
+  subscribeToPush,
+  showOrderStatusNotification,
+} from './pushNotification';
 import {
   Home,
   ShoppingBag,
@@ -33,7 +40,9 @@ import {
   Receipt,
   FileWarning,
   BadgeCheck,
-  Download
+  Download,
+  FileText,
+  Bell
 } from 'lucide-react';
 
 // ฟังก์ชันช่วยจัดการสีโปร่งแสง
@@ -130,10 +139,20 @@ const ORDER_STATUS_META = {
     color: '#f97316',
     background: 'rgba(249, 115, 22, 0.12)',
   },
+  waiting_confirmation: {
+    label: 'รอการตรวจสอบ',
+    color: '#3b82f6',
+    background: 'rgba(59, 130, 246, 0.12)',
+  },
   paid: {
     label: 'ชำระเงินสำเร็จ',
     color: '#16a34a',
     background: 'rgba(22, 163, 74, 0.12)',
+  },
+  completed: {
+    label: 'ออเดอร์สำเร็จ',
+    color: '#8b5cf6',
+    background: 'rgba(139, 92, 246, 0.12)',
   },
 };
 
@@ -234,67 +253,72 @@ const GlobalStyles = () => (
 // --- REUSABLE COMPONENTS ---
 
 // Global Toast Component
-const ToastNotification = ({ show, message, type, extraClass = "" }) => (
-  <div className={`fixed left-6 right-6 backdrop-blur-xl p-4 rounded-2xl shadow-2xl border flex items-center gap-3 z-[1000] transition-all duration-300 transform ${show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'} ${extraClass}`}
-    style={{ backgroundColor: '#ffffff', borderColor: '#f3f4f6' }}>
-    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0`} style={{ backgroundColor: type === 'delete' || type === 'error' ? '#ef4444' : '#22c55e' }}>
-      {type === 'delete' || type === 'error' ? <Trash2 size={20} strokeWidth={2.5} /> : <Check size={20} strokeWidth={3} />}
-    </div>
-    <div>
-      <p className="text-sm font-black text-gray-900">{type === 'delete' ? 'ลบรายการ' : type === 'error' ? 'ผิดพลาด' : 'สำเร็จ'}</p>
-      <p className="text-xs line-clamp-1 text-gray-400">{message}</p>
-    </div>
-  </div>
-);
+// Global Toast Component
+const ToastNotification = React.memo(({ show, message, type, extraClass = "" }) => {
+  const isDelete = type === 'delete' || type === 'error' || type === 'logout';
+  const Icon = type === 'logout' ? LogOut : (isDelete ? Trash2 : Check);
 
-const EmptyState = ({ icon: Icon, title, description }) => (
-  <div className="w-full h-[calc(100vh-320px)] flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300">
-    <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6 shadow-sm border border-gray-100">
-      <Icon size={48} className="text-gray-300" strokeWidth={1.5} />
+  return (
+    <div className={`fixed ${extraClass || 'bottom-24'} left-6 right-6 backdrop-blur-xl p-4 rounded-2xl shadow-2xl border flex items-center gap-3 z-[1000] transition-all duration-300 transform ${show ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}
+      style={{ backgroundColor: '#ffffff', borderColor: '#f3f4f6' }}>
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0`}
+        style={{ backgroundColor: isDelete ? '#ef4444' : '#22c55e' }}>
+        <Icon size={20} strokeWidth={2.5} />
+      </div>
+      <div>
+        <p className="text-sm font-black text-gray-900">
+          {type === 'delete' ? 'ลบรายการ' : type === 'error' ? 'ผิดพลาด' : type === 'logout' ? 'ออกจากระบบ' : 'สำเร็จ'}
+        </p>
+        <p className="text-xs line-clamp-1 text-gray-400">{message}</p>
+      </div>
     </div>
-    <h3 className="text-lg font-black text-gray-400 tracking-tight text-center px-6">{title}</h3>
-    {description && (
-      <p className="text-xs text-gray-300 font-bold mt-2 text-center px-8 leading-relaxed max-w-[250px]">
-        {description}
-      </p>
-    )}
+  );
+});
+
+const EmptyState = React.memo(({ icon: Icon, title, description }) => (
+  <div className="flex flex-col items-center justify-center py-16 px-8 text-center animate-in fade-in zoom-in-95 duration-500">
+    <div className="w-24 h-24 bg-gray-50 rounded-[40px] flex items-center justify-center mb-6 text-gray-200">
+      <Icon size={48} strokeWidth={1.5} />
+    </div>
+    <h3 className="text-xl font-black text-gray-900 mb-2">{title}</h3>
+    <p className="text-gray-400 text-sm leading-relaxed max-w-[200px] mx-auto font-medium">{description}</p>
   </div>
-);
+));
 
 // New Bouncing Dots Loader
-const BouncingDotsLoader = ({ style }) => (
-  <div className="absolute top-0 left-0 right-0 flex justify-center items-start pt-6 pointer-events-none" style={style}>
-    <div className="flex gap-1.5 p-3 bg-white/80 backdrop-blur-md rounded-full shadow-sm border border-gray-100">
-      <div className="w-2 h-2 bg-[#00704A] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-      <div className="w-2 h-2 bg-[#00704A] rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-      <div className="w-2 h-2 bg-[#00704A] rounded-full animate-bounce"></div>
-    </div>
+const BouncingDotsLoader = React.memo(({ style }) => (
+  <div className="flex justify-center items-center gap-1.5 py-4" style={style}>
+    {[0, 1, 2].map((i) => (
+      <div
+        key={i}
+        className="w-2 h-2 rounded-full bg-[#00704A] animate-bounce"
+        style={{ animationDelay: `${i * 0.15}s`, animationDuration: '0.6s' }}
+      ></div>
+    ))}
   </div>
-);
+));
 
 // Header ด้านบนสุดของแต่ละหน้า
-const PersistentHeader = ({ title, scrollProgress, onProfileClick, showOrderHistoryButton, onOrderHistoryClick }) => (
+const PersistentHeader = React.memo(({ title, scrollProgress, onProfileClick, showOrderHistoryButton, onOrderHistoryClick, onNotificationClick, notificationCount, userPhoto }) => (
   <div className="fixed top-0 left-0 right-0 z-[100] pointer-events-none">
     <div
       className="absolute top-0 left-0 right-0 h-[60px]"
       style={{
         background: `linear-gradient(to bottom,
           #fcfcfc 0%,
-          ${alpha('#fcfcfc', '0.98')} 25%,
-          ${alpha('#fcfcfc', '0.85')} 50%,
-          ${alpha('#fcfcfc', '0.4')} 80%,
+          ${alpha('#fcfcfc', '0.98')} 1%,
           ${alpha('#fcfcfc', '0')} 100%)`,
       }}
     />
     <div
       className="relative pt-4 pb-2 px-[18px] flex justify-between items-center"
       style={{
-        opacity: 1 - scrollProgress,
+        opacity: Math.max(0, 1 - scrollProgress),
         transform: `translateY(${-(scrollProgress * 15)}px)`,
-        transition: 'opacity 0.2s ease-out, transform 0.2s ease-out',
+        transition: 'opacity 0.1s ease-out, transform 0.1s ease-out',
       }}
     >
-      <h1 className="text-[26px] font-black tracking-tight text-gray-900">{title}</h1>
+      <h1 className="text-[26px] font-black tracking-tight text-gray-900 line-clamp-1 flex-1 pr-4">{title}</h1>
       <div className="flex items-center gap-3">
         {showOrderHistoryButton && (
           <button
@@ -305,30 +329,41 @@ const PersistentHeader = ({ title, scrollProgress, onProfileClick, showOrderHist
           </button>
         )}
         <button
+          onClick={onNotificationClick}
+          className="relative w-10 h-10 rounded-full border border-gray-200 bg-white shadow-sm pointer-events-auto active:scale-95 transition-transform flex items-center justify-center text-gray-600"
+        >
+          <Bell size={18} strokeWidth={2.5} />
+          {notificationCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-sm">
+              {notificationCount > 99 ? '99+' : notificationCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={onProfileClick}
           className="w-10 h-10 rounded-full border border-gray-100 overflow-hidden shadow-sm bg-white pointer-events-auto active:scale-90 transition-transform"
         >
-          <img src={MOCK_DATA.user.photo} alt="user" className="w-full h-full object-cover" />
+          <img src={userPhoto || 'https://via.placeholder.com/40'} alt="user" className="w-full h-full object-cover" />
         </button>
       </div>
     </div>
   </div>
-);
+));
 
 // Search bar ติดด้านบน
-const StickySearchBar = ({ value, onChange, onFocus, onBlur, placeholder, inputRef }) => (
-  <div className="sticky top-[18px] z-[150] -mx-[18px] px-[18px] pb-2 bg-transparent pointer-events-none">
-    <div className="relative bg-white/90 backdrop-blur-xl rounded-2xl p-4 flex items-center gap-3 border border-gray-100 shadow-lg shadow-gray-900/5 pointer-events-auto">
-      <Search size={18} className="text-gray-400 flex-shrink-0" />
+const StickySearchBar = React.memo(({ value, onChange, onFocus, onBlur, placeholder, inputRef }) => (
+  <div className="sticky top-0 z-[200] -mx-[18px] px-[14px] pb-5 pt-2 bg-[#f3f4f600]">
+    <div className="relative group bg-white bg-opacity-80 backdrop-blur-xl rounded-[24px]">
+      <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00704A] transition-colors"><Search size={20} /></div>
       <input
         ref={inputRef}
-        id="main-search-input"
+        type="text"
+        placeholder={placeholder}
+        className="w-full bg-white bg-opacity-0 border-2 border-[#f3f4f6] py-4 pl-14 pr-6 rounded-[24px] text-[15px] font-bold shadow-sm outline-none transition-all placeholder:text-gray-300"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={onFocus}
         onBlur={onBlur}
-        placeholder={placeholder}
-        className="w-full bg-transparent outline-none text-base font-bold text-gray-900 placeholder-gray-400"
       />
       {value && (
         <button
@@ -336,16 +371,16 @@ const StickySearchBar = ({ value, onChange, onFocus, onBlur, placeholder, inputR
           onClick={() => {
             onChange('');
           }}
-          className="p-1"
+          className="p-1 absolute right-5 top-1/2 -translate-y-1/2"
         >
           <X size={18} className="text-gray-400" />
         </button>
       )}
     </div>
   </div>
-);
+));
 
-const MenuCard = ({ menu, onSelect }) => {
+const MenuCard = React.memo(({ menu, onSelect }) => {
   const displayPrice = menu.typeOptions && menu.typeOptions.length > 0 ? menu.typeOptions[0].price : 0;
   const hasDiscount = menu.discount > 0;
 
@@ -356,16 +391,18 @@ const MenuCard = ({ menu, onSelect }) => {
           <img
             src={menu.image}
             alt={menu.name}
-            className="w-full h-full object-cover group-active:scale-110 transition-transform duration-700"
+            className="w-full h-full object-cover object-center group-active:scale-110 transition-transform duration-700"
+            style={{ aspectRatio: '1 / 1' }}
+            loading="lazy"
             onClick={() => onSelect(menu)}
           />
         </div>
         {menu.isRecommended && (
           <div
-            className="absolute top-2.5 left-2.5 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold shadow-sm"
+            className="absolute top-2.5 left-2.5 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold shadow-sm uppercase tracking-wider"
             style={{ backgroundColor: alpha('#00704A', '0.9') }}
           >
-            ยอดสั่งเยอะที่สุด
+            เมนูแนะนำ ✨
           </div>
         )}
         <button
@@ -397,28 +434,25 @@ const MenuCard = ({ menu, onSelect }) => {
       </div>
     </div>
   );
-};
+});
 
-const NewsCard = ({ item }) => (
-  <div className="bg-white rounded-[32px] overflow-hidden border border-gray-100 shadow-sm mb-6">
-    <div className="relative h-44">
-      <img src={item.image} className="w-full h-full object-cover" alt={item.title} />
-      <div
-        className="absolute top-4 left-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-white"
-        style={{ backgroundColor: item.type === 'Promotion' ? '#f97316' : '#00704A' }}
-      >
-        {item.type === 'Promotion' ? 'โปรโมชั่น' : 'ข่าวสาร'}
-      </div>
+const NewsCard = React.memo(({ item }) => (
+  <div className="w-full rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white mb-6 relative group">
+    <div className="aspect-[16/8] overflow-hidden">
+      <img src={item.image} className="w-full h-full object-cover group-active:scale-105 transition-transform duration-700" alt={item.title} loading="lazy" />
     </div>
     <div className="p-6">
-      <h4 className="font-bold text-gray-900 text-lg line-clamp-1">{item.title}</h4>
-      <p className="text-sm text-gray-400 mt-2 line-clamp-2 leading-relaxed">{item.content}</p>
-      <div className="mt-4 flex items-center text-[10px] text-gray-300 font-bold tracking-widest uppercase">
-        <History size={12} className="mr-1" /> {item.date}
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${item.type === 'Promotion' ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
+          {item.type === 'Promotion' ? 'Promotion' : 'News'}
+        </span>
+        <span className="text-[10px] font-bold text-gray-400">{formatDateTime(item.date).split(' ')[0]}</span>
       </div>
+      <h3 className="text-lg font-black text-gray-900 leading-tight mb-2">{item.title}</h3>
+      <p className="text-gray-500 text-xs leading-relaxed line-clamp-2 font-medium">{item.content}</p>
     </div>
   </div>
-);
+));
 
 // --- MENU DETAIL MODAL ---
 const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = false }) => {
@@ -443,6 +477,14 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
 
   const finalPrice = useMemo(() => {
     const addOnTotal = selectedAddOns.reduce((sum, addon) => sum + addon.price, 0);
+    const basePrice = selectedType.price + addOnTotal;
+    // ลดราคาจาก discount
+    return menu.discount > 0 ? basePrice - menu.discount : basePrice;
+  }, [selectedType, selectedAddOns, menu.discount]);
+
+  // ราคาปกติ (ก่อนลด)
+  const originalPrice = useMemo(() => {
+    const addOnTotal = selectedAddOns.reduce((sum, addon) => sum + addon.price, 0);
     return selectedType.price + addOnTotal;
   }, [selectedType, selectedAddOns]);
 
@@ -458,19 +500,40 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
 
   return (
     <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] max-h-[90vh] flex flex-col">
+      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] max-h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
         <div className="relative h-64 flex-shrink-0">
           <img src={menu.image} className="w-full h-full object-cover" alt={menu.name} />
           <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/50 to-transparent"></div>
+          {menu.isRecommended && (
+            <div className="absolute top-6 left-6 backdrop-blur-md text-white text-[14px] pl-[14px] pr-[10px] pt-[6px] pb-[5px] rounded-2xl font-bold shadow-sm z-10 uppercase tracking-wider" style={{ backgroundColor: alpha('#00704A', '0.85') }}>
+              เมนูแนะนำ ✨
+            </div>
+          )}
           <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30 active:scale-90 transition-transform" style={{ backgroundColor: alpha('#ffffff', '0.2') }}><X size={20} /></button>
         </div>
         <div className="p-8 overflow-y-auto no-scrollbar flex-1 pb-32">
           <div className="flex justify-between items-start mb-2">
             <div>
               <h2 className="text-2xl font-black text-gray-900 leading-tight">{menu.name}</h2>
-              <span className="inline-block mt-2 px-3 py-1 bg-gray-100 text-gray-500 rounded-lg text-[10px] font-bold uppercase tracking-wider">{menu.category}</span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {(menu.categories || [])
+                  .filter(cat => cat !== 'แนะนำ')
+                  .map((cat, idx) => (
+                    <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-500 rounded-2xl text-[10px] font-bold uppercase tracking-wider border border-gray-200/50">
+                      {cat}
+                    </span>
+                  ))}
+              </div>
             </div>
-            <span className="text-3xl font-extra-thick" style={{ color: '#00704A' }}>฿{finalPrice}</span>
+            {menu.discount > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-400 line-through">฿{originalPrice}</span>
+                <span className="text-sm font-bold text-red-500">ลด ฿{menu.discount}</span>
+                <span className="text-3xl font-extra-thick text-red-500">฿{finalPrice}</span>
+              </div>
+            ) : (
+              <span className="text-3xl font-extra-thick" style={{ color: '#00704A' }}>฿{finalPrice}</span>
+            )}
           </div>
           <div className="space-y-8 mt-6">
             {shouldShowTypeSelection && (
@@ -479,7 +542,7 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
                 <div className="flex flex-wrap gap-3">
                   {menu.typeOptions.map((type, idx) => (
                     <button key={idx} onClick={() => setSelectedType(type)}
-                      className="flex-1 min-w-[80px] py-3 px-2 rounded-xl text-sm font-bold border-2 transition-all"
+                      className="flex-1 min-w-[80px] py-3 px-2 rounded-2xl text-sm font-bold border-2 transition-all"
                       style={{
                         backgroundColor: selectedType.label === type.label ? alpha('#00704A', '0.1') : '#ffffff',
                         borderColor: selectedType.label === type.label ? '#00704A' : '#f3f4f6',
@@ -555,14 +618,14 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
           )}
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 
 // --- DELETE CONFIRMATION MODAL ---
 const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
   <div className="fixed inset-0 z-[300] backdrop-blur-sm flex items-end justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500"><Trash2 size={36} strokeWidth={2} /></div>
       <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการลบ?</h3>
       <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">คุณต้องการลบรายการนี้ออกจากออเดอร์ใช่หรือไม่</p>
@@ -577,7 +640,7 @@ const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
 // --- LOGOUT CONFIRMATION MODAL ---
 const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
   <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
+    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
         <LogOut size={36} strokeWidth={2} className="ml-1" />
       </div>
@@ -591,25 +654,23 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
   </div>
 );
 
-const StatusPill = ({ status }) => {
+const StatusPill = React.memo(({ status }) => {
   const meta = ORDER_STATUS_META[status];
   if (!meta) return null;
   return (
-    <span
-      className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest"
-      style={{ backgroundColor: meta.background, color: meta.color }}
-    >
-      <BadgeCheck size={14} /> {meta.label}
-    </span>
+    <div className="px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/5 shadow-sm" style={{ backgroundColor: meta.background }}>
+      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.color }}></div>
+      <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: meta.color }}>{meta.label}</span>
+    </div>
   );
-};
+});
 
-const PaymentSummaryRow = ({ label, value, highlight }) => (
-  <div className="flex items-center justify-between text-sm font-bold" style={{ color: highlight ? '#00704A' : '#6b7280' }}>
-    <span className="uppercase tracking-widest text-[10px] text-gray-400 font-black">{label}</span>
-    <span className={`text-base ${highlight ? 'text-[#00704A] font-black text-lg' : 'font-bold text-gray-700'}`}>{value}</span>
+const PaymentSummaryRow = React.memo(({ label, value, highlight }) => (
+  <div className="flex justify-between items-center h-5">
+    <span className="text-xs font-bold text-gray-500">{label}</span>
+    <span className={`text-sm ${highlight ? 'font-black text-[#16a34a]' : 'font-bold text-gray-800'}`}>{value}</span>
   </div>
-);
+));
 
 const PaymentFlowModal = ({
   visible,
@@ -631,13 +692,16 @@ const PaymentFlowModal = ({
   onScanPromotion,
   promotionError,
   onSubmitCash,
+  onSubmitPromptPay,
   onAttachSlip,
   slipFileName,
   isCheckingSlip,
   slipError,
   onRetrySlip,
+  onRemoveSlip,
 }) => {
   const fileInputRef = useRef(null);
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   if (!visible) return null;
 
@@ -822,7 +886,7 @@ const PaymentFlowModal = ({
 
   return (
     <div className="fixed inset-0 z-[320] flex items-end justify-center bg-[252,252,252,0.2] backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
+      <div className="w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] animate-in slide-in-from-bottom duration-200 flex flex-col h-[90vh]">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
           <button onClick={step === 'selection' ? onClose : onBack} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
             {step === 'selection' ? <X size={20} /> : <ChevronLeft size={20} />}
@@ -845,10 +909,19 @@ const PaymentFlowModal = ({
               ส่งออเดอร์
             </button>
           )}
-          {step === 'promptpay_review' && <div className="w-10" />}
+          {step === 'promptpay_review' && (
+            slipFileName ? (
+              <button
+                onClick={onSubmitPromptPay}
+                className="px-5 py-2.5 rounded-full text-sm font-black bg-[#00704A] text-white shadow-lg active:scale-95 transition-transform"
+              >
+                ส่งออเดอร์
+              </button>
+            ) : <div className="w-10" />
+          )}
         </div>
 
-        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto no-scrollbar">
+        <div className="p-6 space-y-6 flex-1 overflow-y-auto no-scrollbar pb-10">
           {step === 'selection' && (
             <>
               <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-4 flex flex-col gap-3">
@@ -929,11 +1002,19 @@ const PaymentFlowModal = ({
 
               <div className="space-y-4">
                 <PaymentSummaryRow label="สินค้าทั้งหมด" value={`${cart.length} รายการ`} />
-                <div className="space-y-2 bg-gray-50 border border-gray-100 rounded-3xl p-4">
+                <div className="space-y-3 bg-gray-50 border border-gray-100 rounded-3xl p-5">
                   {cart.map(item => (
-                    <div key={item.cartId} className="flex justify-between text-sm font-bold text-gray-700">
-                      <span className="line-clamp-1 pr-4">{item.name}</span>
-                      <span>{formatBaht(item.price)}</span>
+                    <div key={item.cartId || Math.random()} className="flex flex-col gap-1 border-b border-gray-200/50 pb-3 last:border-0 last:pb-0">
+                      <div className="flex justify-between items-start gap-4 text-sm font-bold text-gray-800">
+                        <div className="flex-1">
+                          <p className="line-clamp-1 leading-tight">{item.name}</p>
+                          <p className="text-[10px] font-medium text-gray-400 mt-1 line-clamp-1 capitalize">
+                            {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
+                            {item.note && <span className="text-gray-400"> + {item.note}</span>}
+                          </p>
+                        </div>
+                        <span className="flex-shrink-0 font-black text-gray-900">{formatBaht(item.price)}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -985,7 +1066,29 @@ const PaymentFlowModal = ({
                     <UploadCloud size={18} /> แนบสลิป
                   </button>
                 </div>
-                {slipFileName && <p className="text-xs font-bold text-gray-400">ไฟล์: {slipFileName}</p>}
+                {slipFileName && (
+                  <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200">
+                    <div
+                      className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+                      onClick={() => setShowImageViewer(true)}
+                    >
+                      <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
+                    </div>
+                    <div
+                      className="flex-1 cursor-pointer"
+                      onClick={() => setShowImageViewer(true)}
+                    >
+                      <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
+                      <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
+                    </div>
+                    <button
+                      onClick={onRemoveSlip}
+                      className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
                 {slipError && (
                   <div className="flex flex-col items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
                     <FileWarning size={18} />
@@ -997,6 +1100,12 @@ const PaymentFlowModal = ({
             </div>
           )}
         </div>
+
+        <ImageViewerModal
+          visible={showImageViewer}
+          imageUrl={slipFileName}
+          onClose={() => setShowImageViewer(false)}
+        />
 
         <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
       </div>
@@ -1019,7 +1128,7 @@ const PaymentResultModal = ({ visible, status, orderNumber, methodLabel, message
   const isSuccess = status === 'paid';
   return (
     <div className="fixed inset-0 z-[330] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
-      <div className="w-full max-w-sm bg-white rounded-[36px] p-8 text-center shadow-2xl space-y-5">
+      <div className="w-full max-w-sm bg-white rounded-[36px] p-8 text-center shadow-2xl space-y-5 animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
         <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center ${isSuccess ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'}`}>
           {isSuccess ? <Check size={36} strokeWidth={3} /> : <Receipt size={36} strokeWidth={2.5} />}
         </div>
@@ -1039,29 +1148,277 @@ const PaymentResultModal = ({ visible, status, orderNumber, methodLabel, message
   );
 };
 
-const OrderDetailSheet = ({ order, visible, onClose }) => {
-  if (!visible || !order) return null;
+// --- IMAGE VIEWER MODAL ---
+const ImageViewerModal = ({ visible, imageUrl, onClose }) => {
+  if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[340] flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.0)' }}>
-      <div className="w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden">
-        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
-          <StatusPill status={order.status} />
-          <h3 className="text-base font-black text-gray-900">รายละเอียดออเดอร์</h3>
+    <div className="fixed inset-0 z-[600] flex items-center justify-center backdrop-blur-md p-6 animate-in fade-in duration-300" onClick={onClose} style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="relative w-full max-w-md h-full flex flex-col items-center justify-center gap-6" onClick={e => e.stopPropagation()}>
+        <div className="w-full flex justify-end">
           <button onClick={onClose} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
+            <X size={28} />
+          </button>
+        </div>
+        <div className="relative w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl border border-[#f3f4f6] flex items-center justify-center bg-black/10">
+          <img src={imageUrl} alt="Slip Full View" className="w-full h-full object-contain animate-in zoom-in-95 duration-300" />
+        </div>
+        <p className="text-white/60 text-sm font-bold flex items-center gap-2">
+          <Search size={16} /> แตะด้านนอกเพื่อปิด
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// --- SLIP PREVIEW MODAL ---
+const SlipPreviewModal = ({ visible, imageUrl, fileName, onConfirm, onReselect, onClose }) => {
+  console.log('SlipPreviewModal - visible:', visible, 'imageUrl:', imageUrl, 'fileName:', fileName);
+  if (!visible) return null;
+
+  return (
+    <div className="fixed inset-0 z-[350] flex items-center justify-center backdrop-blur-sm p-6" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+        {/* Header */}
+        <div className="relative p-6 border-b border-gray-100">
+          <h3 className="text-xl font-black text-gray-900 text-center">ตรวจสอบสลิป</h3>
+          <button
+            onClick={onClose}
+            className="absolute right-6 top-6 w-10 h-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center active:scale-95 transition-transform"
+          >
             <X size={20} />
           </button>
         </div>
-        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto no-scrollbar">
+
+        {/* Image Preview */}
+        <div className="p-6 space-y-4">
+          <div className="relative w-full aspect-[3/4] rounded-2xl overflow-hidden bg-gray-100 border-2 border-gray-200">
+            <img
+              src={imageUrl}
+              alt="Slip Preview"
+              className="w-full h-full object-contain"
+            />
+          </div>
+
+          {/* File Info */}
+          <div className="flex items-center gap-3 bg-gray-50 px-4 py-3 rounded-2xl">
+            <FileText size={20} className="text-gray-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-500">สถานะไฟล์</p>
+              <p className="text-sm font-black text-gray-900">พร้อมแนบหลักฐานการโอน</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="p-6 pt-0 space-y-3">
+          <button
+            onClick={onConfirm}
+            className="w-full py-4 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+          >
+            แนบรูป
+          </button>
+          <button
+            onClick={onReselect}
+            className="w-full py-4 bg-gray-100 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
+          >
+            เลือกใหม่
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SlipDeleteConfirmModal = ({ visible, onConfirm, onCancel }) => {
+  if (!visible) return null;
+
+  return (
+    <div className="fixed inset-0 z-[360] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
+          <Trash2 size={36} strokeWidth={2} />
+        </div>
+        <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการลบสลิป?</h3>
+        <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">คุณต้องการลบสลิปการชำระเงินนี้ใช่หรือไม่</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-100 active:scale-95 transition-transform">ยกเลิก</button>
+          <button onClick={onConfirm} className="flex-1 py-4 rounded-2xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 active:scale-95 transition-transform">ลบเลย</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg }) => {
+  const [paymentMethod, setPaymentMethod] = useState(order?.paymentMethod || 'cash');
+  const [slipFileName, setSlipFileName] = useState(order?.slipFileName || '');
+  const [isEditing, setIsEditing] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // State สำหรับ slip preview
+  const [showSlipPreview, setShowSlipPreview] = useState(false);
+  const [pendingSlipFile, setPendingSlipFile] = useState(null);
+  const [slipPreviewUrl, setSlipPreviewUrl] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+
+  useEffect(() => {
+    if (order) {
+      setPaymentMethod(order.paymentMethod || 'cash');
+      setSlipFileName(order.slipFileName || '');
+      setIsEditing(false);
+    }
+  }, [order]);
+
+  if (!visible || !order) return null;
+
+  const canEditPayment = order.status === 'waiting_payment' || order.status === 'waiting_confirmation';
+
+  const handleSlipButton = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // สร้าง preview URL และแสดง modal
+      const previewUrl = URL.createObjectURL(file);
+      setPendingSlipFile(file);
+      setSlipPreviewUrl(previewUrl);
+      setShowSlipPreview(true);
+    }
+    event.target.value = '';
+  };
+
+  const handleConfirmSlip = async () => {
+    if (pendingSlipFile && onUpdateOrder) {
+      try {
+        const fileExt = pendingSlipFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        // Upload to Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('slips')
+          .upload(filePath, pendingSlipFile);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        // Get Public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('slips')
+          .getPublicUrl(filePath);
+
+        setSlipFileName(publicUrl);
+        // บันทึก Public URL ลง Supabase
+        await onUpdateOrder(order.id, {
+          paymentMethod: order.paymentMethod,
+          status: 'waiting_confirmation',
+          slipFileName: publicUrl,
+        });
+
+        setShowSlipPreview(false);
+        if (slipPreviewUrl) {
+          URL.revokeObjectURL(slipPreviewUrl);
+        }
+        setPendingSlipFile(null);
+        setSlipPreviewUrl('');
+        if (showToastMsg) {
+          showToastMsg('อัพโหลดสลิปสำเร็จ', 'success');
+        }
+      } catch (error) {
+        console.error('Error uploading slip:', error);
+        if (showToastMsg) {
+          showToastMsg('เกิดข้อผิดพลาดในการอัพโหลดสลิป', 'error');
+        }
+      }
+    }
+  };
+
+  const handleReselectSlip = () => {
+    // เปิด file input ใหม่
+    fileInputRef.current?.click();
+  };
+
+  const handleCloseSlipPreview = () => {
+    setShowSlipPreview(false);
+    if (slipPreviewUrl) {
+      URL.revokeObjectURL(slipPreviewUrl);
+    }
+    setPendingSlipFile(null);
+    setSlipPreviewUrl('');
+  };
+
+  const handleRemoveSlip = () => {
+    // แสดง confirmation modal แทนการลบทันที
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setSlipFileName('');
+    // ลบสลิปจาก Supabase
+    if (onUpdateOrder) {
+      await onUpdateOrder(order.id, {
+        paymentMethod: order.paymentMethod,
+        status: order.status,
+        slipFileName: null,
+      });
+    }
+    setShowDeleteConfirm(false);
+    if (showToastMsg) {
+      showToastMsg('ลบสลิปสำเร็จ', 'delete');
+    }
+  };
+
+  const handleSaveQR = async () => {
+    try {
+      const link = document.createElement('a');
+      link.href = `https://promptpay.io/0619961130/${order.total}`;
+      link.download = `promptpay_${order.id}.png`;
+      link.click();
+    } catch (err) {
+      console.error('Error saving QR:', err);
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (onUpdateOrder) {
+      // เปลี่ยนสถานะตามวิธีชำระเงิน
+      const newStatus = paymentMethod === 'cash' ? 'waiting_payment' : 'waiting_confirmation';
+      await onUpdateOrder(order.id, {
+        paymentMethod: paymentMethod,
+        status: newStatus,
+        slipFileName: slipFileName || null,
+      });
+    }
+    setIsEditing(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[340] flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.0)' }}>
+      <div className="w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
+        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
+          <StatusPill status={order.status} />
+          <h3 className="text-lg font-black text-gray-900 mt-[-2px]">รายละเอียดออเดอร์</h3>
+          <button onClick={onClose} className="w-10 h-10 mt-[-4px] rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6 space-y-5 flex-1 overflow-y-auto no-scrollbar pb-10">
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-widest text-gray-400 font-black">เลขที่ออเดอร์</p>
             <p className="text-xl font-black text-gray-900">{order.id}</p>
             <p className="text-xs text-gray-400">สร้างเมื่อ {formatDateTime(order.createdAt)}</p>
           </div>
           <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 space-y-3">
-            {order.items.map(item => (
-              <div key={item.cartId} className="flex justify-between gap-4 text-sm font-bold text-gray-700">
-                <span className="line-clamp-1">{item.name}</span>
-                <span>{formatBaht(item.price)}</span>
+            {order.items.map((item, idx) => (
+              <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-2 last:border-0 last:pb-0">
+                <div className="flex justify-between gap-4 text-sm font-bold text-gray-700">
+                  <span className="line-clamp-1 flex-1">{item.name} {item.note && <span className="text-gray-400 font-normal"> + {item.note}</span>}</span>
+                  <span className="flex-shrink-0">{formatBaht(item.price)}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -1070,23 +1427,137 @@ const OrderDetailSheet = ({ order, visible, onClose }) => {
             <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(order.discount)}`} />
             <PaymentSummaryRow label="ชำระทั้งสิ้น" value={formatBaht(order.total)} highlight />
           </div>
-          <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3 text-sm font-bold text-gray-600">
-            <div className="flex justify-between">
-              <span>วิธีการชำระเงิน</span>
-              <span>{order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'}</span>
+
+          {/* วิธีการชำระเงิน */}
+          <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-bold text-gray-600">วิธีการชำระเงิน</span>
+              {canEditPayment && !isEditing && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-xs font-bold text-[#00704A] underline"
+                >
+                  แก้ไข
+                </button>
+              )}
             </div>
+
+            {isEditing && canEditPayment ? (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'cash' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                  >
+                    เงินสด
+                  </button>
+                  <button
+                    onClick={() => setPaymentMethod('promptpay')}
+                    className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'promptpay' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                  >
+                    QR PromptPay
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleConfirmPayment}
+                  className="w-full py-4 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+                >
+                  บันทึกการเปลี่ยนแปลง
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm font-black text-gray-900">
+                  {order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'}
+                </p>
+
+                {/* แสดง QR code โดยอัตโนมัติสำหรับ PromptPay ที่ยังรอชำระ */}
+                {order.paymentMethod === 'promptpay' && canEditPayment && (
+                  <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4 mt-3">
+                    <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={`https://promptpay.io/0619961130/${order.total}`}
+                        alt="PromptPay QR Code"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleSaveQR}
+                        className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
+                      >
+                        <Download size={18} /> บันทึกรูป
+                      </button>
+                      <button
+                        onClick={handleSlipButton}
+                        className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+                      >
+                        <UploadCloud size={18} /> แนบสลิป
+                      </button>
+                    </div>
+                    {slipFileName && (
+                      <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200 mt-2">
+                        <div
+                          className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+                          onClick={() => setShowImageViewer(true)}
+                        >
+                          <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
+                        </div>
+                        <div
+                          className="flex-1 cursor-pointer"
+                          onClick={() => setShowImageViewer(true)}
+                        >
+                          <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
+                          <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
+                        </div>
+                        <button
+                          onClick={handleRemoveSlip}
+                          className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
             {order.promotion && (
-              <div className="flex justify-between">
-                <span>โปรโมชั่น</span>
-                <span>{order.promotion.code}</span>
+              <div className="flex justify-between pt-3 border-t border-gray-100">
+                <span className="text-sm font-bold text-gray-600">โปรโมชั่น</span>
+                <span className="text-sm font-black text-gray-900">{order.promotion.code}</span>
               </div>
             )}
           </div>
         </div>
-        <div className="px-6 pb-8">
-          <StatusPill status={order.status} />
-        </div>
+
       </div>
+
+      <ImageViewerModal
+        visible={showImageViewer}
+        imageUrl={slipFileName}
+        onClose={() => setShowImageViewer(false)}
+      />
+
+      <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
+
+      <SlipPreviewModal
+        visible={showSlipPreview}
+        imageUrl={slipPreviewUrl}
+        fileName={pendingSlipFile?.name || ''}
+        onConfirm={handleConfirmSlip}
+        onReselect={handleReselectSlip}
+        onClose={handleCloseSlipPreview}
+      />
+
+      <SlipDeleteConfirmModal
+        visible={showDeleteConfirm}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 };
@@ -1096,7 +1567,7 @@ const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
   if (!visible) return null;
   return (
     <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col">
+      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
         <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
           <div className="w-10" />
           <h2 className="text-lg font-black text-gray-900">ประวัติออเดอร์</h2>
@@ -1132,6 +1603,116 @@ const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// --- NOTIFICATION MODAL ---
+const NOTIFICATION_STATUS_META = {
+  waiting_payment: { icon: '💳', label: 'รอการชำระเงิน', color: '#f97316' },
+  waiting_confirmation: { icon: '🔍', label: 'กำลังตรวจสอบ', color: '#3b82f6' },
+  paid: { icon: '✅', label: 'ชำระเงินสำเร็จ', color: '#16a34a' },
+  completed: { icon: '🎉', label: 'ออเดอร์สำเร็จ', color: '#8b5cf6' },
+};
+
+const NotificationModal = ({ notifications, visible, onClose, onViewOrder }) => {
+  if (!visible) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+        <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
+          <div className="w-10" />
+          <h2 className="text-lg font-black text-gray-900">การแจ้งเตือน</h2>
+          <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
+          {notifications.length === 0 ? (
+            <EmptyState icon={Bell} title="ไม่มีการแจ้งเตือน" description="เมื่อมีการอัปเดตออเดอร์ คุณจะได้รับการแจ้งเตือนที่นี่" />
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((notif, index) => {
+                const meta = NOTIFICATION_STATUS_META[notif.status] || { icon: '📦', label: 'อัปเดต', color: '#6b7280' };
+                return (
+                  <button
+                    key={notif.id || index}
+                    onClick={() => onViewOrder && onViewOrder(notif.orderId)}
+                    className={`w-full rounded-[20px] p-4 text-left active:scale-[0.99] transition-all border ${notif.read ? 'bg-white border-gray-100' : 'bg-[#00704A]/5 border-[#00704A]/20'}`}
+                  >
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ backgroundColor: `${meta.color}15` }}>
+                        {meta.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-black text-gray-900 truncate">ออเดอร์ #{notif.orderId}</p>
+                          {!notif.read && (
+                            <span className="w-2 h-2 rounded-full bg-[#00704A] flex-shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
+                        <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.createdAt)}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- NEWS DETAIL MODAL ---
+const NewsDetailModal = ({ news, onClose }) => {
+  if (!news) return null;
+
+  return (
+    <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300 shadow-2xl">
+        <div className="relative h-64 flex-shrink-0">
+          <img src={news.image} alt={news.title} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/20 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-transform z-10"
+          >
+            <X size={20} />
+          </button>
+          <div className="absolute bottom-6 left-6 right-6 text-white">
+            <span className="px-3 py-1 rounded-full bg-[#00704A] text-[10px] font-bold mb-3 inline-block shadow-sm">
+              ข่าวสาร & โปรโมชั่น
+            </span>
+            <h2 className="text-2xl font-black leading-tight shadow-sm">{news.title}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-8 space-y-6">
+          <div className="flex items-center gap-3 text-gray-400 text-xs font-bold border-b border-gray-100 pb-6">
+            <div className="flex items-center gap-1">
+              <History size={14} />
+              <span>{formatDateTime(news.date || news.createdAt || new Date())}</span>
+            </div>
+          </div>
+
+          <div className="prose prose-sm max-w-none text-gray-600 leading-relaxed font-medium">
+            <p>{news.content}</p>
+            {news.description && <p className="mt-4">{news.description}</p>}
+          </div>
+
+          {news.image && (
+            <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+              <img src={news.image} alt="content" className="w-full h-auto" />
+            </div>
+          )}
+        </div>
+
+
       </div>
     </div>
   );
@@ -1214,15 +1795,33 @@ const LoginView = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const handleLogin = (e) => {
+
+  const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    setTimeout(() => {
-      if (username === 'user' && password === 'user') onLoginSuccess();
-      else { setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'); setIsLoading(false); }
-    }, 1000);
+
+    try {
+      const { data, error: queryError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .eq('password', password)
+        .single();
+
+      if (queryError || !data) {
+        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+        setIsLoading(false);
+        return;
+      }
+
+      onLoginSuccess(data);
+    } catch (err) {
+      setError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+      setIsLoading(false);
+    }
   };
+
   return (
     <div className="fixed inset-0 bg-[#FDFDFD] z-[400] flex flex-col p-8 justify-center">
       <div className="mb-12">
@@ -1232,17 +1831,17 @@ const LoginView = ({ onLoginSuccess }) => {
       </div>
       <form onSubmit={handleLogin} className="space-y-6">
         <div className="space-y-2">
-          <label className="text-xs font-black text-gray-400 uppercase ml-1">Username</label>
+          <label className="text-xs font-black text-gray-400 uppercase ml-1">ชื่อผู้ใช้งาน</label>
           <div className="relative">
             <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="user" />
+            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="ชื่อผู้ใช้งาน" />
           </div>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-black text-gray-400 uppercase ml-1">Password</label>
+          <label className="text-xs font-black text-gray-400 uppercase ml-1">รหัสผ่าน</label>
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="user" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="รหัสผ่าน" />
           </div>
         </div>
         {error && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
@@ -1256,13 +1855,37 @@ const LoginView = ({ onLoginSuccess }) => {
 };
 
 // --- MAIN APP WRAPPER ---
-const MainApp = ({ onLogout }) => {
+const MainApp = ({ onLogout, currentUser }) => {
   const [currentPage, setCurrentPage] = useState('home');
   const [showProfile, setShowProfile] = useState(false);
   const [cart, setCart] = useState([]);
   const [selectedMenu, setSelectedMenu] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const scrollTicking = useRef(false);
+  const pullTicking = useRef(false);
+
+  // Throttled Scroll Progress
+  const updateScrollProgress = useCallback((scrollTop) => {
+    if (!scrollTicking.current) {
+      window.requestAnimationFrame(() => {
+        setScrollProgress(Math.min(1, Math.max(0, scrollTop / 55)));
+        scrollTicking.current = false;
+      });
+      scrollTicking.current = true;
+    }
+  }, []);
+
+  // Throttled Pull Distance
+  const updatePullDistance = useCallback((distance) => {
+    if (!pullTicking.current) {
+      window.requestAnimationFrame(() => {
+        setPullDistance(distance);
+        pullTicking.current = false;
+      });
+      pullTicking.current = true;
+    }
+  }, []);
 
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -1299,47 +1922,286 @@ const MainApp = ({ onLogout }) => {
   const [isCheckingSlip, setIsCheckingSlip] = useState(false);
   const [slipFileName, setSlipFileName] = useState('');
   const [slipError, setSlipError] = useState('');
+  const [showSlipPreview, setShowSlipPreview] = useState(false);
+  const [pendingSlipFile, setPendingSlipFile] = useState(null);
+  const [slipPreviewUrl, setSlipPreviewUrl] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [orders, setOrders] = useState([]);
   const [showPaymentResult, setShowPaymentResult] = useState(false);
   const [paymentResultMeta, setPaymentResultMeta] = useState(null);
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [focusedOrder, setFocusedOrder] = useState(null);
   const [showOrderHistory, setShowOrderHistory] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [selectedNews, setSelectedNews] = useState(null);
+
+  // Supabase data states
+  const [dbMenus, setDbMenus] = useState([]);
+  const [dbCategories, setDbCategories] = useState([]);
+  const [dbAddons, setDbAddons] = useState([]);
+  const [dbNews, setDbNews] = useState([]);
+  const [dbPromotions, setDbPromotions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // โหลด cart จาก localStorage เมื่อเปิดแอป
+  const isCartInitialized = useRef(false);
+
+  useEffect(() => {
+    const savedCart = localStorage.getItem('cafeAppCart');
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        if (parsedCart && parsedCart.length > 0) {
+          setCart(parsedCart);
+        }
+      } catch (e) {
+        localStorage.removeItem('cafeAppCart');
+      }
+    }
+    isCartInitialized.current = true;
+  }, []);
+
+  // บันทึก cart ลง localStorage เมื่อมีการเปลี่ยนแปลง (หลังจาก init แล้ว)
+  useEffect(() => {
+    if (isCartInitialized.current) {
+      localStorage.setItem('cafeAppCart', JSON.stringify(cart));
+    }
+  }, [cart]);
+
+  // โหลด notifications จาก localStorage เมื่อเปิดแอป
+  const isNotificationsInitialized = useRef(false);
+
+  useEffect(() => {
+    const savedNotifications = localStorage.getItem('cafeAppNotifications');
+    if (savedNotifications) {
+      try {
+        const parsedNotifications = JSON.parse(savedNotifications);
+        if (parsedNotifications && parsedNotifications.length > 0) {
+          setNotifications(parsedNotifications);
+        }
+      } catch (e) {
+        localStorage.removeItem('cafeAppNotifications');
+      }
+    }
+    isNotificationsInitialized.current = true;
+  }, []);
+
+  // บันทึก notifications ลง localStorage เมื่อมีการเปลี่ยนแปลง
+  useEffect(() => {
+    if (isNotificationsInitialized.current) {
+      localStorage.setItem('cafeAppNotifications', JSON.stringify(notifications));
+    }
+  }, [notifications]);
+
+  // Fetch data from Supabase
+  const fetchData = useCallback(async () => {
+    if (!currentUser) return;
+    setIsLoading(true);
+    try {
+      // Fetch menus with addons prices
+      const { data: menusData } = await supabase.from('menus').select('*');
+      const { data: categoriesData } = await supabase.from('menu_categories').select('*').order('sort_order');
+      const { data: addonsData } = await supabase.from('menu_addons').select('*');
+      const { data: newsData } = await supabase.from('news').select('*').order('date', { ascending: false });
+      const { data: promotionsData } = await supabase.from('promotions').select('*');
+
+      // Fetch user's orders
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', currentUser?.id)
+        .order('created_at', { ascending: false });
+
+      // Transform menus with addons prices
+      const transformedMenus = (menusData || []).map(menu => {
+        const menuAddons = (menu.addons || []).map(addonLabel => {
+          const addonData = (addonsData || []).find(a => a.label === addonLabel);
+          return addonData ? { label: addonData.label, price: addonData.price } : { label: addonLabel, price: 0 };
+        });
+        const typeOptions = menu.type_options || [];
+        return {
+          ...menu,
+          category: (menu.categories || [])[0] || '',
+          categories: menu.categories || [],
+          price: typeOptions[0]?.price || 0,
+          originalPrice: typeOptions[0]?.price || 0,
+          isRecommended: menu.is_recommended,
+          typeOptions: typeOptions,
+          addOns: menuAddons,
+        };
+      });
+
+      // Transform orders data
+      const transformedOrders = (ordersData || []).map(order => ({
+        ...order,
+        paymentMethod: order.payment_method,
+        slipFileName: order.slip_file_name,
+        createdAt: order.created_at,
+      }));
+
+      // Calculate promotion usage count from order history
+      const usageMap = {};
+      (ordersData || []).forEach(order => {
+        if (order.promotion && order.promotion.code) {
+          const code = order.promotion.code;
+          usageMap[code] = (usageMap[code] || 0) + 1;
+        }
+      });
+
+      setDbMenus(transformedMenus);
+      setDbCategories(categoriesData || []);
+      setDbAddons(addonsData || []);
+      // Fallback data if news is empty (for demo/testing)
+      const mockNews = [
+        { id: '1', title: 'โปรโมชั่นเปิดร้านใหม่', content: 'ลด 50% ทุกเมนูตลอดเดือนนี้!', image: 'https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
+        { id: '2', title: 'เมนูใหม่! ชาเขียวมัทฉะ', content: 'นำเข้าจากญี่ปุ่น หอมเข้มเต็มรสชา', image: 'https://images.unsplash.com/photo-1515823109133-1463872a99d7?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
+        { id: '3', title: 'สะสมแต้มแลกดื่มฟรี', content: 'ครบ 10 แก้ว รับฟรี 1 แก้วทันที', image: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
+      ];
+      setDbNews((newsData && newsData.length > 0) ? newsData : mockNews);
+      setDbPromotions(promotionsData || []);
+      setOrders(transformedOrders);
+      setPromotionUsage(usageMap);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Request notification permission when user logs in
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const setupPushNotification = async () => {
+      if (isPushSupported()) {
+        const permission = await requestNotificationPermission();
+        if (permission === 'granted') {
+          console.log('Notification permission granted');
+          // สามารถเรียก subscribeToPush() และ saveSubscriptionToSupabase() ได้ที่นี่
+          // ถ้าสร้างตาราง push_subscriptions ใน Supabase แล้ว
+        }
+      }
+    };
+
+    setupPushNotification();
+  }, [currentUser]);
+
+  // Realtime subscription for orders
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const channel = supabase
+      .channel('orders-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `user_id=eq.${currentUser.id}`,
+        },
+        (payload) => {
+          console.log('Realtime order update:', payload);
+
+          if (payload.eventType === 'INSERT') {
+            const newOrder = {
+              ...payload.new,
+              paymentMethod: payload.new.payment_method,
+              slipFileName: payload.new.slip_file_name,
+              createdAt: payload.new.created_at,
+            };
+            setOrders((prev) => [newOrder, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setOrders((prev) =>
+              prev.map((order) =>
+                order.id === payload.new.id
+                  ? {
+                    ...payload.new,
+                    paymentMethod: payload.new.payment_method,
+                    slipFileName: payload.new.slip_file_name,
+                    createdAt: payload.new.created_at,
+                  }
+                  : order
+              )
+            );
+            // Update focusedOrder if currently viewing the updated order
+            setFocusedOrder((prev) =>
+              prev && prev.id === payload.new.id
+                ? {
+                  ...payload.new,
+                  paymentMethod: payload.new.payment_method,
+                  slipFileName: payload.new.slip_file_name,
+                  createdAt: payload.new.created_at,
+                }
+                : prev
+            );
+            // Show push notification when order status changes
+            showOrderStatusNotification(payload.new.id, payload.new.status);
+            // Add to in-app notifications
+            setNotifications((prev) => [
+              {
+                id: `${payload.new.id}-${Date.now()}`,
+                orderId: payload.new.id,
+                status: payload.new.status,
+                createdAt: new Date().toISOString(),
+                read: false,
+              },
+              ...prev,
+            ]);
+          } else if (payload.eventType === 'DELETE') {
+            setOrders((prev) => prev.filter((order) => order.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser]);
 
   // Ref for previous query to track changes
   const prevMenuSearchQuery = useRef(menuSearchQuery);
-  const prevGlobalSearchQuery = useRef(globalSearchQuery); // Added ref for global search
+  const prevGlobalSearchQuery = useRef(globalSearchQuery);
+
+  const isModalOpen = useMemo(() => {
+    return showProfile || selectedMenu || editingItem || deleteConfirmItem || showLogoutConfirm || showPaymentFlow || showPaymentResult || showOrderDetail || showOrderHistory || showSlipPreview || showDeleteConfirm || selectedNews;
+  }, [showProfile, selectedMenu, editingItem, deleteConfirmItem, showLogoutConfirm, showPaymentFlow, showPaymentResult, showOrderDetail, showOrderHistory, showSlipPreview, showDeleteConfirm, selectedNews]);
 
   useEffect(() => {
-    const isModalOpen = showProfile || selectedMenu || editingItem || deleteConfirmItem || showLogoutConfirm || showPaymentFlow || showPaymentResult || showOrderDetail || showOrderHistory;
     document.body.style.overflow = isModalOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [showProfile, selectedMenu, editingItem, deleteConfirmItem, showLogoutConfirm, showPaymentFlow, showPaymentResult, showOrderDetail, showOrderHistory]);
+  }, [isModalOpen]);
 
   const filteredMenuResults = useMemo(() => {
-    let result = [...MOCK_DATA.menus];
+    let result = [...dbMenus];
     const q = menuSearchQuery.toLowerCase();
-    if (q) result = result.filter(item => item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q));
+    if (q) result = result.filter(item => item.name.toLowerCase().includes(q) || (item.categories || []).some(c => c.toLowerCase().includes(q)));
     if (activeMenuCategory === 'แนะนำ') result = result.filter(item => item.isRecommended);
-    else if (activeMenuCategory !== 'ทั้งหมด') result = result.filter(item => item.category === activeMenuCategory);
+    else if (activeMenuCategory !== 'ทั้งหมด') result = result.filter(item => (item.categories || []).includes(activeMenuCategory));
     return result.sort((a, b) => (b.isRecommended ? 1 : 0) - (a.isRecommended ? 1 : 0));
-  }, [menuSearchQuery, activeMenuCategory]);
+  }, [menuSearchQuery, activeMenuCategory, dbMenus]);
 
   const globalSearchResults = useMemo(() => {
     const q = globalSearchQuery.toLowerCase();
     if (!q) return { promos: [], news: [], menus: [] };
-    const filteredNews = MOCK_DATA.news.filter(n => {
+    const filteredNews = dbNews.filter(n => {
       const typeThai = n.type === 'Promotion' ? 'โปรโมชั่น' : 'ข่าวสาร';
-      return n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q) || n.type.toLowerCase().includes(q) || typeThai.includes(q);
+      return n.title.toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q) || n.type.toLowerCase().includes(q) || typeThai.includes(q);
     });
-    const filteredMenus = MOCK_DATA.menus.filter(m => m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q));
+    const filteredMenus = dbMenus.filter(m => m.name.toLowerCase().includes(q) || (m.categories || []).some(c => c.toLowerCase().includes(q)));
     return { promos: filteredNews.filter(n => n.type === 'Promotion'), news: filteredNews.filter(n => n.type === 'News'), menus: filteredMenus };
-  }, [globalSearchQuery]);
+  }, [globalSearchQuery, dbMenus, dbNews]);
 
   // Main Scroll Handler - attached to div
   const handleScroll = (e) => {
     const scrollTop = e.currentTarget.scrollTop;
-    setScrollProgress(Math.min(1, Math.max(0, scrollTop / 55)));
+    updateScrollProgress(scrollTop);
 
     // Check if we need to hide keyboard (and user is not scrolling automatically)
     if (!isAutoScrolling.current && !isJustFocused.current && document.activeElement === searchInputRef.current) {
@@ -1377,13 +2239,15 @@ const MainApp = ({ onLogout }) => {
     }
 
     // Pull to Refresh
+    if (isModalOpen) return;
+
     const containerScrollY = scrollContainerRef.current ? scrollContainerRef.current.scrollTop : 0;
     const touchY = e.touches[0].clientY;
     const diff = touchY - touchStartRef.current;
 
     // Use containerScrollY, NOT window.scrollY
     if (containerScrollY <= 10 && diff > 0 && !isRefreshing) {
-      setPullDistance(Math.min(diff * 0.4, 120));
+      updatePullDistance(Math.min(diff * 0.4, 120));
     }
   };
 
@@ -1462,6 +2326,7 @@ const MainApp = ({ onLogout }) => {
 
   // --- Pull to Refresh Logic ---
   const handleTouchStart = (e) => {
+    if (isModalOpen) return;
     const containerScrollY = scrollContainerRef.current ? scrollContainerRef.current.scrollTop : 0;
     if (containerScrollY === 0) {
       touchStartRef.current = e.touches[0].clientY;
@@ -1469,16 +2334,19 @@ const MainApp = ({ onLogout }) => {
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = async () => {
     setIsPulling(false);
     if (pullDistance > 60) {
       setIsRefreshing(true);
       setPullDistance(60);
 
+      // Fetch fresh data from Supabase
+      await fetchData();
+
       setTimeout(() => {
         setIsRefreshing(false);
         setPullDistance(0);
-      }, 1500);
+      }, 500);
     } else {
       setPullDistance(0);
     }
@@ -1564,9 +2432,27 @@ const MainApp = ({ onLogout }) => {
       return;
     }
 
-    const promotion = PROMOTIONS.find(p => p.code === code);
-    if (!promotion) {
+    const dbPromo = dbPromotions.find(p => p.code === code);
+    if (!dbPromo) {
       setPromotionError('ไม่พบโปรโมชั่นนี้');
+      setAppliedPromotion(null);
+      return;
+    }
+
+    // Transform to expected format
+    const promotion = {
+      code: dbPromo.code,
+      name: dbPromo.name,
+      description: dbPromo.description,
+      type: dbPromo.type,
+      value: dbPromo.value,
+      maxDiscount: dbPromo.max_discount,
+      usageLimit: dbPromo.usage_limit,
+      expiresAt: dbPromo.expires_at,
+    };
+
+    if (promotion.expiresAt && new Date(promotion.expiresAt) < new Date()) {
+      setPromotionError('โปรโมชั่นหมดอายุแล้ว');
       setAppliedPromotion(null);
       return;
     }
@@ -1574,12 +2460,6 @@ const MainApp = ({ onLogout }) => {
     const usageCount = promotionUsage[code] || 0;
     if (promotion.usageLimit && usageCount >= promotion.usageLimit) {
       setPromotionError('คุณใช้สิทธิ์โปรโมชั่นนี้ครบแล้ว');
-      setAppliedPromotion(null);
-      return;
-    }
-
-    if (promotion.expiresAt && new Date(promotion.expiresAt) < new Date()) {
-      setPromotionError('โปรโมชั่นหมดอายุแล้ว');
       setAppliedPromotion(null);
       return;
     }
@@ -1600,55 +2480,90 @@ const MainApp = ({ onLogout }) => {
     setAppliedPromotion(null);
     setPromoInput('');
     setPromotionError('');
-    showToastMsg('ยกเลิกโปรโมชั่นแล้ว', 'success');
+    showToastMsg('ลบโปรโมชั่นสำเร็จ', 'delete');
   };
 
   const handleScanPromotion = () => {
     showToastMsg('ฟีเจอร์สแกน QR โปรโมชั่นกำลังพัฒนา', 'error');
   };
 
-  const createOrderRecord = (status, method) => {
+  const createOrderRecord = async (status, method) => {
     const orderId = generateOrderNumber();
     const itemsSnapshot = cart.map(item => ({ ...item }));
-    const orderRecord = {
+
+    // สร้าง order record สำหรับ Supabase
+    const supabaseOrder = {
       id: orderId,
+      user_id: currentUser?.id,
       items: itemsSnapshot,
       subtotal,
       discount: promotionDiscount,
       total: finalTotal,
-      paymentMethod: method,
+      payment_method: method,
       status,
-      createdAt: new Date().toISOString(),
       promotion: appliedPromotion ? { ...appliedPromotion } : null,
+      slip_file_name: slipFileName || null,
     };
 
-    setOrders(prev => [orderRecord, ...prev]);
+    try {
+      // บันทึกลง Supabase
+      const { error } = await supabase.from('orders').insert([supabaseOrder]);
 
-    if (appliedPromotion) {
-      setPromotionUsage(prev => {
-        const current = prev[appliedPromotion.code] || 0;
-        return { ...prev, [appliedPromotion.code]: current + 1 };
+      if (error) {
+        console.error('Error saving order:', error);
+        showToastMsg('เกิดข้อผิดพลาดในการบันทึกออเดอร์', 'error');
+        return;
+      }
+
+      // สร้าง order record สำหรับ local state (รูปแบบเดิม)
+      const orderRecord = {
+        id: orderId,
+        items: itemsSnapshot,
+        subtotal,
+        discount: promotionDiscount,
+        total: finalTotal,
+        paymentMethod: method,
+        status,
+        createdAt: new Date().toISOString(),
+        promotion: appliedPromotion ? { ...appliedPromotion } : null,
+        slipFileName: slipFileName || null,
+      };
+
+      setOrders(prev => [orderRecord, ...prev]);
+
+      if (appliedPromotion) {
+        setPromotionUsage(prev => {
+          const current = prev[appliedPromotion.code] || 0;
+          return { ...prev, [appliedPromotion.code]: current + 1 };
+        });
+      }
+
+      const getResultMessage = () => {
+        if (status === 'paid') return 'ชำระเงินสำเร็จแล้วผ่าน QR Code PromptPay';
+        if (status === 'waiting_confirmation') return 'รอการตรวจสอบการชำระเงิน พนักงานจะตรวจสอบสลิปของคุณ';
+        return 'รอการชำระเงิน กรุณาติดต่อเคาท์เตอร์แคชเชียร์';
+      };
+
+      setPaymentResultMeta({
+        order: orderRecord,
+        status,
+        methodLabel: method === 'cash' ? 'เงินสด' : 'QR PromptPay',
+        message: getResultMessage(),
       });
+
+      setShowPaymentFlow(false);
+      setShowPaymentResult(true);
+      setCart([]);
+      setAppliedPromotion(null);
+      setPromoInput('');
+      setSelectedPaymentMethod(null);
+      setSlipFileName('');
+      setSlipError('');
+      setIsCheckingSlip(false);
+    } catch (err) {
+      console.error('Error:', err);
+      showToastMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
     }
-
-    setPaymentResultMeta({
-      order: orderRecord,
-      status,
-      methodLabel: method === 'cash' ? 'เงินสด' : 'QR PromptPay',
-      message: status === 'paid'
-        ? 'ชำระเงินสำเร็จแล้วผ่าน QR Code PromptPay'
-        : 'รอการชำระเงิน กรุณาติดต่อเคาท์เตอร์แคชเชียร์',
-    });
-
-    setShowPaymentFlow(false);
-    setShowPaymentResult(true);
-    setCart([]);
-    setAppliedPromotion(null);
-    setPromoInput('');
-    setSelectedPaymentMethod(null);
-    setSlipFileName('');
-    setSlipError('');
-    setIsCheckingSlip(false);
   };
 
   const handleSubmitCashPayment = () => {
@@ -1657,19 +2572,85 @@ const MainApp = ({ onLogout }) => {
 
   const handleAttachSlip = (file) => {
     if (!file) return;
-    setSlipError('');
-    setSlipFileName(file.name);
-    setIsCheckingSlip(true);
+    console.log('handleAttachSlip - file:', file);
+    // สร้าง preview URL และ แสดง modal
+    const previewUrl = URL.createObjectURL(file);
+    console.log('handleAttachSlip - previewUrl:', previewUrl);
+    setPendingSlipFile(file);
+    setSlipPreviewUrl(previewUrl);
+    setShowSlipPreview(true);
+  };
 
-    setTimeout(() => {
-      const isValid = verifySlipAmountFromFileName(file.name, finalTotal);
-      setIsCheckingSlip(false);
-      if (!isValid) {
-        setSlipError('ไม่สามารถตรวจสอบได้หรือยอดเงินไม่ตรงกับออเดอร์ กรุณาตรวจสอบอีกครั้ง');
-        return;
+  const handleConfirmSlip = async () => {
+    if (pendingSlipFile) {
+      try {
+        const fileExt = pendingSlipFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        // Upload to Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('slips')
+          .upload(filePath, pendingSlipFile);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        // Get Public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('slips')
+          .getPublicUrl(filePath);
+
+        // Update state with Public URL
+        setSlipFileName(publicUrl);
+        setShowSlipPreview(false);
+
+        // Clean up local preview
+        if (slipPreviewUrl) {
+          URL.revokeObjectURL(slipPreviewUrl);
+        }
+        setPendingSlipFile(null);
+        setSlipPreviewUrl('');
+
+        showToastMsg('อัพโหลดสลิปสำเร็จ', 'success');
+      } catch (error) {
+        console.error('Error uploading slip:', error);
+        showToastMsg('เกิดข้อผิดพลาดในการอัพโหลดสลิป', 'error');
       }
-      createOrderRecord('paid', 'promptpay');
-    }, 1400);
+    }
+  };
+
+  const handleReselectSlip = () => {
+    // เปิด file input ใหม่
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) {
+      fileInput.click();
+    }
+  };
+
+  const handleCloseSlipPreview = () => {
+    setShowSlipPreview(false);
+    if (slipPreviewUrl) {
+      URL.revokeObjectURL(slipPreviewUrl);
+    }
+    setPendingSlipFile(null);
+    setSlipPreviewUrl('');
+  };
+
+  const handleSubmitPromptPay = () => {
+    // ส่งออเดอร์พร้อมสถานะรอตรวจสอบการชำระเงิน
+    createOrderRecord('waiting_confirmation', 'promptpay');
+  };
+
+  const handleRemoveSlip = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setSlipFileName('');
+    setShowDeleteConfirm(false);
+    showToastMsg('ลบสลิปสำเร็จ', 'delete');
   };
 
   const handleRetrySlip = () => {
@@ -1694,6 +2675,45 @@ const MainApp = ({ onLogout }) => {
   const handleCloseOrderDetail = () => {
     setShowOrderDetail(false);
     setFocusedOrder(null);
+  };
+
+  const handleUpdateOrder = async (orderId, updates) => {
+    try {
+      // อัพเดท Supabase
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_method: updates.paymentMethod,
+          status: updates.status,
+          slip_file_name: updates.slipFileName !== undefined ? updates.slipFileName : order?.slipFileName,
+        })
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error updating order:', error);
+        showToastMsg('เกิดข้อผิดพลาดในการอัพเดทออเดอร์', 'error');
+        return;
+      }
+
+      // อัพเดท local state
+      setOrders(prev => prev.map(o =>
+        o.id === orderId
+          ? { ...o, paymentMethod: updates.paymentMethod, status: updates.status, slipFileName: updates.slipFileName }
+          : o
+      ));
+
+      // อัพเดท focusedOrder
+      setFocusedOrder(prev =>
+        prev && prev.id === orderId
+          ? { ...prev, paymentMethod: updates.paymentMethod, status: updates.status, slipFileName: updates.slipFileName }
+          : prev
+      );
+
+      showToastMsg('อัพเดทออเดอร์สำเร็จ', 'success');
+    } catch (err) {
+      console.error('Error:', err);
+      showToastMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+    }
   };
 
   useEffect(() => {
@@ -1726,6 +2746,9 @@ const MainApp = ({ onLogout }) => {
 
   const handleLogout = () => {
     setShowLogoutConfirm(false);
+    // เคลียร์การแจ้งเตือนเมื่อออกจากระบบ
+    setNotifications([]);
+    localStorage.removeItem('cafeAppNotifications');
     onLogout();
   };
 
@@ -1743,7 +2766,7 @@ const MainApp = ({ onLogout }) => {
       <PersistentHeader
         title={
           currentPage === 'home'
-            ? `สวัสดี, คุณสมชาย`
+            ? `สวัสดี, ${currentUser?.name || 'คุณลูกค้า'}`
             : currentPage === 'menu'
               ? 'เมนูของร้าน'
               : currentPage === 'search'
@@ -1756,6 +2779,9 @@ const MainApp = ({ onLogout }) => {
         onProfileClick={() => setShowProfile(true)}
         showOrderHistoryButton={currentPage === 'order'}
         onOrderHistoryClick={() => setShowOrderHistory(true)}
+        onNotificationClick={() => setShowNotifications(true)}
+        notificationCount={notifications.filter((n) => !n.read).length}
+        userPhoto={currentUser?.photo}
       />
 
       {/* Pull to Refresh Indicator */}
@@ -1767,7 +2793,9 @@ const MainApp = ({ onLogout }) => {
         }}
       >
         {isRefreshing ? (
-          <BouncingDotsLoader style={{ position: 'relative', paddingTop: 0 }} />
+          <div className="w-16 h-8 rounded-full bg-white shadow-md border border-gray-100 flex items-center justify-center">
+            <BouncingDotsLoader style={{ position: 'relative', paddingTop: 2, paddingBottom: 0 }} />
+          </div>
         ) : (
           <div className="w-8 h-8 rounded-full bg-white shadow-md border border-gray-100 flex items-center justify-center transform transition-transform" style={{ transform: `rotate(${pullDistance * 3}deg)` }}>
             <ArrowDown size={16} className="text-[#00704A] -rotate-180" />
@@ -1785,21 +2813,25 @@ const MainApp = ({ onLogout }) => {
             <section>
               <h2 className="text-xl font-black text-[#111827] mb-5 px-1 flex justify-between items-center">ข่าวสารและโปรโมชั่น <ArrowRight size={20} className="text-gray-300" /></h2>
               <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar -mx-[18px] px-[18px]">
-                {MOCK_DATA.news.map(n => (
-                  <div key={n.id} className="w-[280px] min-w-[280px] h-48 relative rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white flex-shrink-0">
+                {dbNews.map(n => (
+                  <button
+                    key={n.id}
+                    onClick={() => setSelectedNews(n)}
+                    className="w-[280px] min-w-[280px] h-48 relative rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white flex-shrink-0 text-left active:scale-[0.98] transition-transform"
+                  >
                     <img src={n.image} className="w-full h-full object-cover" alt={n.title} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-6 flex flex-col justify-end text-white">
                       <h3 className="font-bold text-lg leading-tight">{n.title}</h3>
                       <p className="text-white/70 text-xs mt-1 line-clamp-1">{n.content}</p>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </section>
             <section>
               <h2 className="text-xl font-black text-[#111827] mb-5 px-1">เมนูแนะนำสำหรับคุณ</h2>
               <div className="grid grid-cols-2 gap-x-4 gap-y-8">
-                {MOCK_DATA.menus.filter(m => m.isRecommended).slice(0, 4).map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
+                {dbMenus.filter(m => m.isRecommended).slice(0, 4).map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
               </div>
             </section>
           </div>
@@ -1820,7 +2852,7 @@ const MainApp = ({ onLogout }) => {
               inputRef={searchInputRef}
             />
             <div ref={categoryContainerRef} className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
-              {['ทั้งหมด', ...MOCK_DATA.menuCategories].map(cat => (
+              {['ทั้งหมด', ...dbCategories.map(c => c.name)].map(cat => (
                 <button key={cat} onClick={() => setActiveMenuCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
                   style={{
                     backgroundColor: activeMenuCategory === cat ? '#00704A' : '#ffffff',
@@ -1902,19 +2934,25 @@ const MainApp = ({ onLogout }) => {
         {currentPage === 'order' && (
           <div className="space-y-6">
             <div className="sticky top-[18px] z-[150] -mx-[18px] px-[18px] pb-2 bg-transparent pointer-events-none">
-              <div className="p-6 rounded-[32px] shadow-xl border pointer-events-auto mt-2 bg-white/90 backdrop-blur-xl space-y-5" style={{ borderColor: '#f3f4f6' }}>
-                <div className="flex items-center justify-between gap-6">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase text-gray-400">ยอดรวม</p>
-                    <p className="text-3xl font-black" style={{ color: '#00704A' }}>{formatBaht(subtotal)}</p>
+              <div className="p-6 rounded-[32px] shadow-xl border pointer-events-auto mt-2 bg-white/80 backdrop-blur-xl space-y-5" style={{ borderColor: '#f3f4f6' }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">จำนวนสินค้า</p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-black text-gray-900">{cart.length}</span>
+                      <span className="text-sm font-bold text-gray-400">รายการ</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold uppercase text-gray-400">ส่วนลด</p>
-                    <p className="text-xl font-black text-red-500">- {formatBaht(promotionDiscount)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold uppercase text-gray-400">ชำระทั้งสิ้น</p>
-                    <p className="text-2xl font-black" style={{ color: '#16a34a' }}>{formatBaht(finalTotal)}</p>
+                  <div className="flex flex-col items-end">
+                    <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">ยอดรวมทั้งสิ้น</p>
+                    <div className="flex flex-col items-end">
+                      <p className="text-3xl font-black" style={{ color: '#00704A' }}>{formatBaht(finalTotal)}</p>
+                      {promotionDiscount > 0 && (
+                        <p className="text-[10px] font-bold text-red-500 mt-[-2px]">
+                          ประหยัดไป {formatBaht(promotionDiscount)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {appliedPromotion && (
@@ -1944,7 +2982,10 @@ const MainApp = ({ onLogout }) => {
                 <img src={item.image} className="w-20 h-20 rounded-[24px] object-cover flex-shrink-0" alt={item.name} />
                 <div className="flex-1 min-w-0">
                   <h4 className="font-bold text-base line-clamp-1 text-gray-900 leading-tight">{item.name}</h4>
-                  <p className="text-xs mt-1 line-clamp-1 text-gray-400">{item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}</p>
+                  <p className="text-xs mt-1 line-clamp-1 text-gray-400">
+                    {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
+                    {item.note && <span className="text-gray-400 font-regular"> + {item.note}</span>}
+                  </p>
                 </div>
                 <div className="flex-shrink-0 pl-2 flex flex-col items-end">
                   {item.discount > 0 ? (
@@ -1967,10 +3008,12 @@ const MainApp = ({ onLogout }) => {
       </main>
 
       {/* Toast Notification */}
-      <div className={`fixed bottom-24 left-6 right-6 backdrop-blur-xl p-4 rounded-2xl shadow-2xl border flex items-center gap-3 z-[200] transition-all duration-300 transform ${showToast ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`} style={{ backgroundColor: '#ffffff', borderColor: '#f3f4f6' }}>
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0`} style={{ backgroundColor: toastType === 'delete' ? '#ef4444' : '#22c55e' }}>{toastType === 'delete' ? <Trash2 size={20} strokeWidth={2.5} /> : <Check size={20} strokeWidth={3} />}</div>
-        <div><p className="text-sm font-black text-gray-900">{toastType === 'delete' ? 'ลบรายการ' : 'สำเร็จ'}</p><p className="text-xs line-clamp-1 text-gray-400">{toastMessage}</p></div>
-      </div>
+      <ToastNotification
+        show={showToast}
+        message={toastMessage}
+        type={toastType}
+        extraClass={toastMessage.includes('สลิป') || showPaymentFlow ? 'bottom-6' : 'bottom-24'}
+      />
 
       {/* Navigation Bar - Fixed at bottom, NO hiding logic */}
       <div className="fixed bottom-0 left-0 right-0 z-[150] flex items-center justify-between gap-3 px-[18px] pb-[18px] pointer-events-none transition-all duration-300 transform translate-y-0 opacity-100">
@@ -1981,7 +3024,7 @@ const MainApp = ({ onLogout }) => {
               {currentPage === item.id && <div className="absolute inset-[2px] rounded-full" style={{ backgroundColor: '#f1f5f9' }} />}
               <item.icon size={22} strokeWidth={currentPage === item.id ? 2.5 : 2} className="relative z-10" />
               <span className="text-[10px] mt-1 font-bold relative z-10">{item.label}</span>
-              {item.id === 'order' && cart.length > 0 && <span className="absolute top-1 right-5 text-white text-[10px] font-bold h-5 min-w-[1.25rem] px-1 flex items-center justify-center rounded-full border-2 z-20 shadow-sm" style={{ backgroundColor: '#ef4444', borderColor: '#ffffff' }}>{cart.length}</span>}
+              {item.id === 'order' && cart.length > 0 && <span className="absolute top-0 right-6 text-white text-[10px] font-bold h-5 min-w-[1.25rem] px-1 flex items-center justify-center rounded-full border-2 z-20 shadow-sm" style={{ backgroundColor: '#ef4444', borderColor: '#ffffff' }}>{cart.length}</span>}
             </button>
           ))}
         </div>
@@ -2013,11 +3056,13 @@ const MainApp = ({ onLogout }) => {
         onScanPromotion={handleScanPromotion}
         promotionError={promotionError}
         onSubmitCash={handleSubmitCashPayment}
+        onSubmitPromptPay={handleSubmitPromptPay}
         onAttachSlip={handleAttachSlip}
         slipFileName={slipFileName}
         isCheckingSlip={isCheckingSlip}
         slipError={slipError}
         onRetrySlip={handleRetrySlip}
+        onRemoveSlip={handleRemoveSlip}
       />
 
       <PaymentResultModal
@@ -2033,6 +3078,8 @@ const MainApp = ({ onLogout }) => {
         visible={showOrderDetail}
         order={focusedOrder}
         onClose={handleCloseOrderDetail}
+        onUpdateOrder={handleUpdateOrder}
+        showToastMsg={showToastMsg}
       />
 
       <OrderHistoryModal
@@ -2045,6 +3092,24 @@ const MainApp = ({ onLogout }) => {
         }}
       />
 
+      <NotificationModal
+        visible={showNotifications}
+        notifications={notifications}
+        onClose={() => {
+          setShowNotifications(false);
+          // ไม่ mark as read เมื่อปิด - จะ mark เฉพาะเมื่อกดดูรายการนั้นๆ เท่านั้น
+        }}
+        onViewOrder={(orderId) => {
+          const order = orders.find((o) => o.id === orderId);
+          if (order) {
+            setFocusedOrder(order);
+            setShowOrderDetail(true);
+            // ไม่ปิด notification modal เพื่อให้ order detail แสดงทับไป
+            setNotifications((prev) => prev.map((n) => n.orderId === orderId ? { ...n, read: true } : n));
+          }
+        }}
+      />
+
       {selectedMenu && <MenuDetailModal menu={selectedMenu} onClose={() => setSelectedMenu(null)} onConfirm={(item) => handleAddToCart(item)} />}
 
       {editingItem && <MenuDetailModal menu={editingItem} isEditMode={true} onClose={() => setEditingItem(null)} onConfirm={(item) => { handleUpdateCart(item); setEditingItem(null); }} onDelete={() => setDeleteConfirmItem(editingItem)} />}
@@ -2053,22 +3118,38 @@ const MainApp = ({ onLogout }) => {
 
       {showLogoutConfirm && <LogoutConfirmModal onConfirm={handleLogout} onCancel={() => setShowLogoutConfirm(false)} />}
 
+      {selectedNews && <NewsDetailModal news={selectedNews} onClose={() => setSelectedNews(null)} />}
+
+      <SlipPreviewModal
+        visible={showSlipPreview}
+        imageUrl={slipPreviewUrl}
+        fileName={pendingSlipFile?.name || ''}
+        onConfirm={handleConfirmSlip}
+        onReselect={handleReselectSlip}
+        onClose={handleCloseSlipPreview}
+      />
+      <SlipDeleteConfirmModal
+        visible={showDeleteConfirm}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+
       {showProfile && (
-        <div className="fixed inset-0 z-[300] bg-[#fcfcfc] p-[18px]">
+        <div className="fixed inset-0 z-[300] bg-[#fcfcfc] p-[18px] animate-in slide-in-from-bottom duration-300">
           <div className="flex justify-between items-center mb-8 mt-0 px-0"><h2 className="text-2xl font-black">โปรไฟล์</h2><button onClick={() => setShowProfile(false)} className="p-2 bg-white border border-[#f3f4f6] rounded-full shadow-sm"><X size={24} /></button></div>
           <div className="rounded-[40px] p-10 text-white shadow-2xl relative overflow-hidden mb-10" style={{ backgroundColor: '#1c1c1e' }}>
             <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-[100px]" style={{ backgroundColor: alpha('#00704A', '0.4') }}></div>
             <div className="flex gap-4 items-center mb-10 relative z-10">
-              <img src={MOCK_DATA.user.photo} className="w-16 h-16 rounded-2xl border border-white/20" alt="profile" />
+              <img src={currentUser?.photo || 'https://via.placeholder.com/64'} className="w-16 h-16 rounded-2xl border border-white/20" alt="profile" />
               <div>
-                <h3 className="text-xl font-bold">{MOCK_DATA.user.name}</h3>
-                <p className="text-[10px] font-black uppercase mt-1 tracking-widest" style={{ color: '#00704A' }}>{MOCK_DATA.user.id}</p>
+                <h3 className="text-xl font-bold">{currentUser?.name || 'ไม่ระบุชื่อ'}</h3>
+                <p className="text-[10px] font-black uppercase mt-1 tracking-widest" style={{ color: '#00704A' }}>{currentUser?.id || '-'}</p>
               </div>
             </div>
             <div className="flex justify-between border-t border-white/10 pt-8 relative z-10">
               <div>
                 <p className="text-[10px] font-bold uppercase mb-1 text-gray-400">Point Balance</p>
-                <p className="text-3xl font-black">{MOCK_DATA.user.points} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
+                <p className="text-3xl font-black">{currentUser?.points || 0} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
               </div>
               <QrCode size={50} className="opacity-30" />
             </div>
@@ -2085,7 +3166,22 @@ const MainApp = ({ onLogout }) => {
 
 const App = () => {
   const [appState, setAppState] = useState('splash');
+  const [currentUser, setCurrentUser] = useState(null);
   const [globalToast, setGlobalToast] = useState({ show: false, message: '', type: 'success' });
+
+  // ตรวจสอบ localStorage เมื่อเปิดแอป
+  useEffect(() => {
+    const savedUser = localStorage.getItem('cafeAppUser');
+    if (savedUser) {
+      try {
+        const userData = JSON.parse(savedUser);
+        setCurrentUser(userData);
+        setAppState('main');
+      } catch (e) {
+        localStorage.removeItem('cafeAppUser');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (globalToast.show) {
@@ -2094,25 +3190,50 @@ const App = () => {
     }
   }, [globalToast.show]);
 
+  const handleLoginSuccess = (userData) => {
+    // บันทึกลง localStorage
+    localStorage.setItem('cafeAppUser', JSON.stringify(userData));
+    setCurrentUser(userData);
+    setAppState('main');
+  };
+
   const handleLogout = () => {
+    // ลบจาก localStorage
+    localStorage.removeItem('cafeAppUser');
+    localStorage.removeItem('cafeAppCart');
+    setCurrentUser(null);
     setAppState('login');
     setTimeout(() => {
-      setGlobalToast({ show: true, message: 'ออกจากระบบเรียบร้อย', type: 'success' });
+      setGlobalToast({ show: true, message: 'ขอบคุณที่แวะมานะคะ แล้วพบกันใหม่ค่ะ', type: 'logout' });
     }, 300);
   };
 
   if (appState === 'splash') return (
     <>
       <GlobalStyles />
-      <SplashView onFinish={() => setAppState('login')} />
+      <SplashView onFinish={() => {
+        const savedUser = localStorage.getItem('cafeAppUser');
+        if (savedUser) {
+          try {
+            const userData = JSON.parse(savedUser);
+            setCurrentUser(userData);
+            setAppState('main');
+          } catch (e) {
+            localStorage.removeItem('cafeAppUser');
+            setAppState('login');
+          }
+        } else {
+          setAppState('login');
+        }
+      }} />
     </>
   );
 
   return (
     <>
       <GlobalStyles />
-      {appState === 'login' && <LoginView onLoginSuccess={() => setAppState('main')} />}
-      {appState === 'main' && <MainApp onLogout={handleLogout} />}
+      {appState === 'login' && <LoginView onLoginSuccess={handleLoginSuccess} />}
+      {appState === 'main' && <MainApp onLogout={handleLogout} currentUser={currentUser} />}
 
       <ToastNotification
         show={globalToast.show}
