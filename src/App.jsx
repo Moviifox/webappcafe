@@ -352,7 +352,7 @@ const PersistentHeader = React.memo(({ title, scrollProgress, onProfileClick, sh
 
 // Search bar ติดด้านบน
 const StickySearchBar = React.memo(({ value, onChange, onFocus, onBlur, placeholder, inputRef }) => (
-  <div className="sticky top-0 z-[200] -mx-[18px] px-[14px] pb-5 pt-2 bg-[#f3f4f600]">
+  <div className="sticky top-0 z-[200] -mx-[18px] px-[14px] pb-2 pt-2 bg-[#f3f4f600]">
     <div className="relative group bg-white bg-opacity-80 backdrop-blur-xl rounded-[24px]">
       <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#00704A] transition-colors"><Search size={20} /></div>
       <input
@@ -382,52 +382,54 @@ const StickySearchBar = React.memo(({ value, onChange, onFocus, onBlur, placehol
 
 // --- IMAGE CACHING UTILS ---
 const imageCache = new Map();
+const failedCache = new Set();
 
 const CachedImage = ({ src, alt, className, style, onClick, ...props }) => {
-  const cachedUrl = imageCache.get(src);
-  const [imageSrc, setImageSrc] = useState(cachedUrl || src);
-  const [isLoaded, setIsLoaded] = useState(!!cachedUrl);
+  // 1. Check if we have a cached blob in memory
+  const cachedBlobUrl = imageCache.get(src);
+
+  // 2. Initialize: Use cached blob if available, otherwise original src
+  // We commit to this source for the lifetime of this component mount to avoid "swap flicker"
+  const [displaySrc] = useState(cachedBlobUrl || src);
 
   useEffect(() => {
     if (!src) return;
 
-    if (imageCache.has(src)) {
-      if (imageSrc !== imageCache.get(src)) {
-        setImageSrc(imageCache.get(src));
-        setIsLoaded(true);
-      }
+    // If already cached or failed or is data/blob, do nothing
+    if (imageCache.has(src) || failedCache.has(src) || src.startsWith('data:') || src.startsWith('blob:')) {
       return;
     }
 
-    let isMounted = true;
+    // Background fetch to populate cache for NEXT mount
     const fetchImage = async () => {
       try {
         const response = await fetch(src, { mode: 'cors' });
         if (!response.ok) throw new Error('Network response was not ok');
         const blob = await response.blob();
-        if (isMounted) {
-          const objectUrl = URL.createObjectURL(blob);
-          imageCache.set(src, objectUrl);
-          setImageSrc(objectUrl);
-          setIsLoaded(true);
-        }
+        const objectUrl = URL.createObjectURL(blob);
+        imageCache.set(src, objectUrl);
+        // Note: We deliberately do NOT `setDisplaySrc` here.
+        // Changing the src of a visible image causes a repaint/flash.
+        // We let the browser show the original `src` for now (from its own HTTP cache).
+        // The NEXT time this component mounts (e.g. switching pages), it will grab the blob from imageCache.
       } catch (e) {
-        console.warn("Failed to cache image, falling back to src:", e);
-        if (isMounted) {
-          setImageSrc(src);
-          setIsLoaded(true);
-        }
+        failedCache.add(src);
       }
     };
 
     fetchImage();
-
-    return () => {
-      isMounted = false;
-    };
   }, [src]);
 
-  return <img src={imageSrc} alt={alt} className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`} style={style} onClick={onClick} {...props} />;
+  return (
+    <img
+      src={displaySrc}
+      alt={alt}
+      className={className} // Removed transition-opacity duration-300 opacity-0 logic
+      style={style}
+      onClick={onClick}
+      {...props}
+    />
+  );
 };
 
 const MenuCard = React.memo(({ menu, onSelect }) => {
