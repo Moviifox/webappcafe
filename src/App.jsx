@@ -2260,8 +2260,8 @@ const MainApp = ({ onLogout, currentUser }) => {
   const prevGlobalSearchQuery = useRef(globalSearchQuery);
 
   const isModalOpen = useMemo(() => {
-    return showProfile || selectedMenu || editingItem || deleteConfirmItem || showLogoutConfirm || showPaymentFlow || showPaymentResult || showOrderDetail || showOrderHistory || showSlipPreview || showDeleteConfirm || selectedNews;
-  }, [showProfile, selectedMenu, editingItem, deleteConfirmItem, showLogoutConfirm, showPaymentFlow, showPaymentResult, showOrderDetail, showOrderHistory, showSlipPreview, showDeleteConfirm, selectedNews]);
+    return showProfile || selectedMenu || editingItem || deleteConfirmItem || showLogoutConfirm || showPaymentFlow || showPaymentResult || showOrderDetail || showOrderHistory || showSlipPreview || showDeleteConfirm || selectedNews || showNotifications;
+  }, [showProfile, selectedMenu, editingItem, deleteConfirmItem, showLogoutConfirm, showPaymentFlow, showPaymentResult, showOrderDetail, showOrderHistory, showSlipPreview, showDeleteConfirm, selectedNews, showNotifications]);
 
   useEffect(() => {
     document.body.style.overflow = isModalOpen ? 'hidden' : '';
