@@ -445,7 +445,6 @@ const MenuCard = React.memo(({ menu, onSelect }) => {
             alt={menu.name}
             className="w-full h-full object-cover object-center group-active:scale-110 transition-transform duration-700"
             style={{ aspectRatio: '1 / 1' }}
-            loading="lazy"
             onClick={() => onSelect(menu)}
           />
         </div>
@@ -491,7 +490,7 @@ const MenuCard = React.memo(({ menu, onSelect }) => {
 const NewsCard = React.memo(({ item }) => (
   <div className="w-full rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white mb-6 relative group">
     <div className="aspect-[16/8] overflow-hidden">
-      <CachedImage src={item.image} className="w-full h-full object-cover group-active:scale-105 transition-transform duration-700" alt={item.title} loading="lazy" />
+      <CachedImage src={item.image} className="w-full h-full object-cover group-active:scale-105 transition-transform duration-700" alt={item.title} />
     </div>
     <div className="p-6">
       <div className="flex items-center gap-2 mb-2">
@@ -2955,203 +2954,199 @@ const MainApp = ({ onLogout, currentUser }) => {
         style={{ paddingTop: `${correctedMainPaddingTop}px` }}
       >
 
-        {currentPage === 'home' && (
-          <div className="space-y-12">
-            <section>
-              <h2 className="text-xl font-black text-[#111827] mb-5 px-1 flex justify-between items-center">ข่าวสารและโปรโมชั่น <ArrowRight size={20} className="text-gray-300" /></h2>
-              <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar -mx-[18px] px-[18px]">
-                {dbNews.map(n => (
-                  <button
-                    key={n.id}
-                    onClick={() => setSelectedNews(n)}
-                    className="w-[280px] min-w-[280px] h-48 relative rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white flex-shrink-0 text-left active:scale-[0.98] transition-transform"
-                  >
-                    <CachedImage src={n.image} className="w-full h-full object-cover" alt={n.title} />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-6 flex flex-col justify-end text-white">
-                      <h3 className="font-bold text-lg leading-tight">{n.title}</h3>
-                      <p className="text-white/70 text-xs mt-1 line-clamp-1">{n.content}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-            <section>
-              <h2 className="text-xl font-black text-[#111827] mb-5 px-1">เมนูแนะนำสำหรับคุณ</h2>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-8">
-                {dbMenus.filter(m => m.isRecommended).slice(0, 4).map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
-              </div>
-            </section>
-          </div>
-        )}
-
-        {currentPage === 'menu' && (
-          <div className="flex flex-col gap-1">
-            <StickySearchBar
-              value={menuSearchQuery}
-              onChange={handleMenuSearchChange}
-              onFocus={() => {
-                setIsSearching(true);
-                isJustFocused.current = true;
-                setTimeout(() => { isJustFocused.current = false; }, 800);
-              }}
-              onBlur={() => setTimeout(() => setIsSearching(false), 100)}
-              placeholder="ค้นหาเมนู หรือหมวดหมู่..."
-              inputRef={searchInputRef}
-            />
-            <div ref={categoryContainerRef} className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
-              {['ทั้งหมด', ...dbCategories.map(c => c.name)].map(cat => (
-                <button key={cat} onClick={() => setActiveMenuCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
-                  style={{
-                    backgroundColor: activeMenuCategory === cat ? '#00704A' : '#ffffff',
-                    borderColor: activeMenuCategory === cat ? '#00704A' : '#f3f4f6',
-                    color: activeMenuCategory === cat ? '#ffffff' : '#9ca3af',
-                    transform: activeMenuCategory === cat ? 'scale(1.05)' : 'scale(1)'
-                  }}>
-                  {cat}
+        {/* HOME PAGE */}
+        <div style={{ display: currentPage === 'home' ? 'block' : 'none' }} className="space-y-12">
+          <section>
+            <h2 className="text-xl font-black text-[#111827] mb-5 px-1 flex justify-between items-center">ข่าวสารและโปรโมชั่น <ArrowRight size={20} className="text-gray-300" /></h2>
+            <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar -mx-[18px] px-[18px]">
+              {dbNews.map(n => (
+                <button
+                  key={n.id}
+                  onClick={() => setSelectedNews(n)}
+                  className="w-[280px] min-w-[280px] h-48 relative rounded-[32px] overflow-hidden shadow-lg border border-gray-100 bg-white flex-shrink-0 text-left active:scale-[0.98] transition-transform"
+                >
+                  <CachedImage src={n.image} className="w-full h-full object-cover" alt={n.title} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-6 flex flex-col justify-end text-white">
+                    <h3 className="font-bold text-lg leading-tight">{n.title}</h3>
+                    <p className="text-white/70 text-xs mt-1 line-clamp-1">{n.content}</p>
+                  </div>
                 </button>
               ))}
             </div>
-            {filteredMenuResults.length > 0 ? (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-8 mt-4">
-                {filteredMenuResults.map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
-              </div>
-            ) : (
-              <EmptyState icon={SearchX} title="ไม่พบเมนูที่ค้นหา" description="ลองตรวจสอบคำค้นหา หรือเลือกดูในหมวดหมู่อื่นดูนะ" />
-            )}
-          </div>
-        )}
-
-        {currentPage === 'search' && (
-          <div className="flex flex-col gap-1 h-full">
-            <StickySearchBar
-              value={globalSearchQuery}
-              onChange={handleGlobalSearchChange}
-              onFocus={() => {
-                setIsSearching(true);
-                isJustFocused.current = true;
-                setTimeout(() => { isJustFocused.current = false; }, 800);
-              }}
-              onBlur={() => setTimeout(() => setIsSearching(false), 100)}
-              placeholder="ค้นหาโปรโมชั่น ข่าวสาร หรือเมนู..."
-              inputRef={searchInputRef}
-            />
-            {!globalSearchQuery ? <EmptyState icon={SearchIcon} title="ค้นหาสิ่งที่คุณต้องการเลย" description="พิมพ์คำค้นหาเพื่อเริ่มค้นหาโปรโมชั่น ข่าวสาร และเมนูอร่อยๆ" /> : (
-              <div>
-                <div ref={categoryContainerRef} className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
-                  {['ทั้งหมด', 'โปรโมชั่น', 'ข่าวสาร', 'เมนู'].map(cat => (
-                    <button key={cat} onClick={() => setActiveGlobalCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
-                      style={{
-                        backgroundColor: activeGlobalCategory === cat ? '#00704A' : '#ffffff',
-                        borderColor: activeGlobalCategory === cat ? '#00704A' : '#f3f4f6',
-                        color: activeGlobalCategory === cat ? '#ffffff' : '#9ca3af',
-                      }}>
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-                {isGlobalSearchEmpty ? (
-                  <EmptyState icon={SearchX} title="ไม่พบข้อมูลที่ค้นหา" description="ลองตรวจสอบตัวสะกด หรือเปลี่ยนหมวดหมู่การค้นหาดูนะ" />
-                ) : (
-                  <div className="mt-8">
-                    {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'โปรโมชั่น') && globalSearchResults.promos.length > 0 && (
-                      <div className="mb-6">
-                        {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> โปรโมชั่นที่พบ</h3>}
-                        {globalSearchResults.promos.map(item => <NewsCard key={`p-${item.id}`} item={item} />)}
-                      </div>
-                    )}
-                    {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'ข่าวสาร') && globalSearchResults.news.length > 0 && (
-                      <div className="mb-6">
-                        {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> ข่าวสารที่พบ</h3>}
-                        {globalSearchResults.news.map(item => <NewsCard key={`n-${item.id}`} item={item} />)}
-                      </div>
-                    )}
-                    {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'เมนู') && globalSearchResults.menus.length > 0 && (
-                      <div className="mb-12">
-                        {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> เมนูที่พบ</h3>}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-8">{globalSearchResults.menus.map(item => <MenuCard key={`m-${item.id}`} menu={item} onSelect={setSelectedMenu} />)}</div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {currentPage === 'order' && (
-          <div className="space-y-6">
-            <div className="sticky top-[18px] z-[150] -mx-[18px] px-[18px] pb-2 bg-transparent pointer-events-none">
-              <div className="p-6 rounded-[32px] shadow-xl border pointer-events-auto mt-2 bg-white/80 backdrop-blur-xl space-y-5" style={{ borderColor: '#f3f4f6' }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">จำนวนสินค้า</p>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-black text-gray-900">{cart.length}</span>
-                      <span className="text-sm font-bold text-gray-400">รายการ</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">ยอดรวมทั้งสิ้น</p>
-                    <div className="flex flex-col items-end">
-                      <p className="text-3xl font-black" style={{ color: '#00704A' }}>{formatBaht(finalTotal)}</p>
-                      {promotionDiscount > 0 && (
-                        <p className="text-[10px] font-bold text-red-500 mt-[-2px]">
-                          ประหยัดไป {formatBaht(promotionDiscount)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {appliedPromotion && (
-                  <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl text-sm text-[#00704A] font-bold">
-                    <div>
-                      <p className="font-black">ใช้ {appliedPromotion.code}</p>
-                      <p className="text-xs text-[#00704A]/70">{appliedPromotion.name}</p>
-                    </div>
-                    <button onClick={handleRemovePromotion} className="text-xs font-black text-[#00704A] underline">ยกเลิก</button>
-                  </div>
-                )}
-                <button
-                  onClick={handleOpenPaymentFlow}
-                  disabled={cart.length === 0}
-                  className={`w-full px-10 py-4 rounded-2xl font-black active:scale-95 transition-transform ${cart.length === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'text-white shadow-lg'}`}
-                  style={cart.length === 0
-                    ? { backgroundColor: '#e5e7eb', boxShadow: 'none' }
-                    : { backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
-                >
-                  ถัดไป
-                </button>
-              </div>
+          </section>
+          <section>
+            <h2 className="text-xl font-black text-[#111827] mb-5 px-1">เมนูแนะนำสำหรับคุณ</h2>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8">
+              {dbMenus.filter(m => m.isRecommended).slice(0, 4).map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
             </div>
+          </section>
+        </div>
 
-            {cart.map((item, idx) => (
-              <div key={idx} onClick={() => setEditingItem(item)} className="p-2 pr-4 rounded-[32px] flex items-center gap-4 border shadow-sm active:scale-[0.98] transition-all bg-white border-gray-100">
-                <img src={item.image} className="w-20 h-20 rounded-[24px] object-cover flex-shrink-0" alt={item.name} />
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-base line-clamp-1 text-gray-900 leading-tight">{item.name}</h4>
-                  <p className="text-xs mt-1 line-clamp-1 text-gray-400">
-                    {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
-                    {item.note && <span className="text-gray-400 font-regular"> + {item.note}</span>}
-                  </p>
-                </div>
-                <div className="flex-shrink-0 pl-2 flex flex-col items-end">
-                  {item.discount > 0 ? (
-                    <>
-                      <p className="text-xl font-black text-red-500">฿{item.price}</p>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-400 line-through">฿{item.price + item.discount}</span>
-                        <Tag size={10} className="text-red-500" />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xl font-black" style={{ color: '#00704A' }}>฿{item.price}</p>
+        {/* MENU PAGE */}
+        <div style={{ display: currentPage === 'menu' ? 'block' : 'none' }} className="flex flex-col gap-1">
+          <StickySearchBar
+            value={menuSearchQuery}
+            onChange={handleMenuSearchChange}
+            onFocus={() => {
+              setIsSearching(true);
+              isJustFocused.current = true;
+              setTimeout(() => { isJustFocused.current = false; }, 800);
+            }}
+            onBlur={() => setTimeout(() => setIsSearching(false), 100)}
+            placeholder="ค้นหาเมนู หรือหมวดหมู่..."
+            inputRef={searchInputRef}
+          />
+          <div ref={categoryContainerRef} className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
+            {['ทั้งหมด', ...dbCategories.map(c => c.name)].map(cat => (
+              <button key={cat} onClick={() => setActiveMenuCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
+                style={{
+                  backgroundColor: activeMenuCategory === cat ? '#00704A' : '#ffffff',
+                  borderColor: activeMenuCategory === cat ? '#00704A' : '#f3f4f6',
+                  color: activeMenuCategory === cat ? '#ffffff' : '#9ca3af',
+                  transform: activeMenuCategory === cat ? 'scale(1.05)' : 'scale(1)'
+                }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+          {filteredMenuResults.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 mt-4">
+              {filteredMenuResults.map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
+            </div>
+          ) : (
+            <EmptyState icon={SearchX} title="ไม่พบเมนูที่ค้นหา" description="ลองตรวจสอบคำค้นหา หรือเลือกดูในหมวดหมู่อื่นดูนะ" />
+          )}
+        </div>
+
+        {/* SEARCH PAGE */}
+        <div style={{ display: currentPage === 'search' ? 'block' : 'none' }} className="flex flex-col gap-1 h-full">
+          <StickySearchBar
+            value={globalSearchQuery}
+            onChange={handleGlobalSearchChange}
+            onFocus={() => {
+              setIsSearching(true);
+              isJustFocused.current = true;
+              setTimeout(() => { isJustFocused.current = false; }, 800);
+            }}
+            onBlur={() => setTimeout(() => setIsSearching(false), 100)}
+            placeholder="ค้นหาโปรโมชั่น ข่าวสาร หรือเมนู..."
+            inputRef={searchInputRef}
+          />
+          {!globalSearchQuery ? <EmptyState icon={SearchIcon} title="ค้นหาสิ่งที่คุณต้องการเลย" description="พิมพ์คำค้นหาเพื่อเริ่มค้นหาโปรโมชั่น ข่าวสาร และเมนูอร่อยๆ" /> : (
+            <div>
+              <div ref={categoryContainerRef} className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
+                {['ทั้งหมด', 'โปรโมชั่น', 'ข่าวสาร', 'เมนู'].map(cat => (
+                  <button key={cat} onClick={() => setActiveGlobalCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
+                    style={{
+                      backgroundColor: activeGlobalCategory === cat ? '#00704A' : '#ffffff',
+                      borderColor: activeGlobalCategory === cat ? '#00704A' : '#f3f4f6',
+                      color: activeGlobalCategory === cat ? '#ffffff' : '#9ca3af',
+                    }}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              {isGlobalSearchEmpty ? (
+                <EmptyState icon={SearchX} title="ไม่พบข้อมูลที่ค้นหา" description="ลองตรวจสอบตัวสะกด หรือเปลี่ยนหมวดหมู่การค้นหาดูนะ" />
+              ) : (
+                <div className="mt-8">
+                  {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'โปรโมชั่น') && globalSearchResults.promos.length > 0 && (
+                    <div className="mb-6">
+                      {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> โปรโมชั่นที่พบ</h3>}
+                      {globalSearchResults.promos.map(item => <NewsCard key={`p-${item.id}`} item={item} />)}
+                    </div>
+                  )}
+                  {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'ข่าวสาร') && globalSearchResults.news.length > 0 && (
+                    <div className="mb-6">
+                      {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> ข่าวสารที่พบ</h3>}
+                      {globalSearchResults.news.map(item => <NewsCard key={`n-${item.id}`} item={item} />)}
+                    </div>
+                  )}
+                  {(activeGlobalCategory === 'ทั้งหมด' || activeGlobalCategory === 'เมนู') && globalSearchResults.menus.length > 0 && (
+                    <div className="mb-12">
+                      {activeGlobalCategory === 'ทั้งหมด' && <h3 className="text-[10px] font-black uppercase tracking-widest mb-4 px-1 flex items-center gap-2 text-gray-400"><Sparkles size={12} /> เมนูที่พบ</h3>}
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-8">{globalSearchResults.menus.map(item => <MenuCard key={`m-${item.id}`} menu={item} onSelect={setSelectedMenu} />)}</div>
+                    </div>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ORDER PAGE */}
+        <div style={{ display: currentPage === 'order' ? 'block' : 'none' }} className="space-y-6">
+          <div className="sticky top-[18px] z-[150] -mx-[18px] px-[18px] pb-2 bg-transparent pointer-events-none">
+            <div className="p-6 rounded-[32px] shadow-xl border pointer-events-auto mt-2 bg-white/80 backdrop-blur-xl space-y-5" style={{ borderColor: '#f3f4f6' }}>
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">จำนวนสินค้า</p>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-black text-gray-900">{cart.length}</span>
+                    <span className="text-sm font-bold text-gray-400">รายการ</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end">
+                  <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">ยอดรวมทั้งสิ้น</p>
+                  <div className="flex flex-col items-end">
+                    <p className="text-3xl font-black" style={{ color: '#00704A' }}>{formatBaht(finalTotal)}</p>
+                    {promotionDiscount > 0 && (
+                      <p className="text-[10px] font-bold text-red-500 mt-[-2px]">
+                        ประหยัดไป {formatBaht(promotionDiscount)}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            ))}
-            {cart.length === 0 && <EmptyState icon={ShoppingBag} title="ไม่มีรายการในออเดอร์ของคุณ" description="เลือกเมนูที่ถูกใจเพิ่มลงในออเดอร์เลย" />}
+              {appliedPromotion && (
+                <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl text-sm text-[#00704A] font-bold">
+                  <div>
+                    <p className="font-black">ใช้ {appliedPromotion.code}</p>
+                    <p className="text-xs text-[#00704A]/70">{appliedPromotion.name}</p>
+                  </div>
+                  <button onClick={handleRemovePromotion} className="text-xs font-black text-[#00704A] underline">ยกเลิก</button>
+                </div>
+              )}
+              <button
+                onClick={handleOpenPaymentFlow}
+                disabled={cart.length === 0}
+                className={`w-full px-10 py-4 rounded-2xl font-black active:scale-95 transition-transform ${cart.length === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'text-white shadow-lg'}`}
+                style={cart.length === 0
+                  ? { backgroundColor: '#e5e7eb', boxShadow: 'none' }
+                  : { backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+              >
+                ถัดไป
+              </button>
+            </div>
           </div>
-        )}
+
+          {cart.map((item, idx) => (
+            <div key={idx} onClick={() => setEditingItem(item)} className="p-2 pr-4 rounded-[32px] flex items-center gap-4 border shadow-sm active:scale-[0.98] transition-all bg-white border-gray-100">
+              <img src={item.image} className="w-20 h-20 rounded-[24px] object-cover flex-shrink-0" alt={item.name} />
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-base line-clamp-1 text-gray-900 leading-tight">{item.name}</h4>
+                <p className="text-xs mt-1 line-clamp-1 text-gray-400">
+                  {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
+                  {item.note && <span className="text-gray-400 font-regular"> + {item.note}</span>}
+                </p>
+              </div>
+              <div className="flex-shrink-0 pl-2 flex flex-col items-end">
+                {item.discount > 0 ? (
+                  <>
+                    <p className="text-xl font-black text-red-500">฿{item.price}</p>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-400 line-through">฿{item.price + item.discount}</span>
+                      <Tag size={10} className="text-red-500" />
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xl font-black" style={{ color: '#00704A' }}>฿{item.price}</p>
+                )}
+              </div>
+            </div>
+          ))}
+          {cart.length === 0 && <EmptyState icon={ShoppingBag} title="ไม่มีรายการในออเดอร์ของคุณ" description="เลือกเมนูที่ถูกใจเพิ่มลงในออเดอร์เลย" />}
+        </div>
       </main>
 
       {/* Toast Notification */}
