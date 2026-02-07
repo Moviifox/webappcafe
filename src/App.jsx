@@ -1162,9 +1162,7 @@ const ImageViewerModal = ({ visible, imageUrl, onClose }) => {
         <div className="relative w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl border border-[#f3f4f6] flex items-center justify-center bg-black/10">
           <img src={imageUrl} alt="Slip Full View" className="w-full h-full object-contain animate-in zoom-in-95 duration-300" />
         </div>
-        <p className="text-white/60 text-sm font-bold flex items-center gap-2">
-          <Search size={16} /> แตะด้านนอกเพื่อปิด
-        </p>
+
       </div>
     </div>
   );
@@ -1413,7 +1411,7 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
             <p className="text-xs text-gray-400">สร้างเมื่อ {formatDateTime(order.createdAt)}</p>
           </div>
           <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 space-y-3">
-            {order.items.map((item, idx) => (
+            {(order.items || []).map((item, idx) => (
               <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-2 last:border-0 last:pb-0">
                 <div className="flex justify-between gap-4 text-sm font-bold text-gray-700">
                   <span className="line-clamp-1 flex-1">{item.name} {item.note && <span className="text-gray-400 font-normal"> + {item.note}</span>}</span>
@@ -1531,6 +1529,23 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
                 <span className="text-sm font-black text-gray-900">{order.promotion.code}</span>
               </div>
             )}
+
+            {/* แสดงสลิปสำหรับออเดอร์ที่สำเร็จแล้ว */}
+            {(order.slip_file_name || order.slipFileName) && !canEditPayment && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-sm font-bold text-gray-600 mb-3">หลักฐานการชำระเงิน</p>
+                <div
+                  className="rounded-2xl overflow-hidden border border-gray-200 cursor-pointer active:scale-[0.99] transition-transform"
+                  onClick={() => setShowImageViewer(true)}
+                >
+                  <img
+                    src={order.slip_file_name || order.slipFileName}
+                    alt="Slip"
+                    className="w-full h-auto max-h-[300px] object-contain bg-gray-50"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1538,7 +1553,7 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
 
       <ImageViewerModal
         visible={showImageViewer}
-        imageUrl={slipFileName}
+        imageUrl={slipFileName || order.slip_file_name || order.slipFileName}
         onClose={() => setShowImageViewer(false)}
       />
 
@@ -1594,7 +1609,7 @@ const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
                     <StatusPill status={order.status} />
                   </div>
                   <div className="mt-4 flex items-center justify-between text-sm font-bold text-gray-500">
-                    <span>{order.items.length} รายการ</span>
+                    <span>{(order.items || []).length} รายการ</span>
                     <span>{formatBaht(order.total)}</span>
                   </div>
                   <p className="mt-2 text-xs text-gray-400">{order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'} • {formatDateTime(order.createdAt)}</p>
@@ -2052,13 +2067,14 @@ const MainApp = ({ onLogout, currentUser }) => {
       setDbMenus(transformedMenus);
       setDbCategories(categoriesData || []);
       setDbAddons(addonsData || []);
-      // Fallback data if news is empty (for demo/testing)
-      const mockNews = [
-        { id: '1', title: 'โปรโมชั่นเปิดร้านใหม่', content: 'ลด 50% ทุกเมนูตลอดเดือนนี้!', image: 'https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
-        { id: '2', title: 'เมนูใหม่! ชาเขียวมัทฉะ', content: 'นำเข้าจากญี่ปุ่น หอมเข้มเต็มรสชา', image: 'https://images.unsplash.com/photo-1515823109133-1463872a99d7?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
-        { id: '3', title: 'สะสมแต้มแลกดื่มฟรี', content: 'ครบ 10 แก้ว รับฟรี 1 แก้วทันที', image: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&q=80&w=800', date: new Date().toISOString() },
-      ];
-      setDbNews((newsData && newsData.length > 0) ? newsData : mockNews);
+      // กรองเฉพาะข่าวที่ถึงวันเวลา publish_date แล้ว
+      const now = new Date();
+      const filteredNews = (newsData || []).filter(news => {
+        if (!news.publish_date) return true; // ถ้าไม่มี publish_date ให้แสดงเลย
+        const publishDate = new Date(news.publish_date);
+        return publishDate <= now;
+      });
+      setDbNews(filteredNews);
       setDbPromotions(promotionsData || []);
       setOrders(transformedOrders);
       setPromotionUsage(usageMap);
@@ -2582,42 +2598,64 @@ const MainApp = ({ onLogout, currentUser }) => {
   };
 
   const handleConfirmSlip = async () => {
-    if (pendingSlipFile) {
-      try {
-        const fileExt = pendingSlipFile.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const filePath = `${fileName}`;
+    if (!pendingSlipFile) {
+      showToastMsg('ไม่พบไฟล์สลิป กรุณาเลือกใหม่', 'error');
+      setShowSlipPreview(false);
+      return;
+    }
 
-        // Upload to Supabase Storage
-        const { error: uploadError } = await supabase.storage
-          .from('slips')
-          .upload(filePath, pendingSlipFile);
+    try {
+      const fileExt = pendingSlipFile.name.split('.').pop() || 'jpg';
+      const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+      const filePath = `${fileName}`;
 
-        if (uploadError) {
-          throw uploadError;
-        }
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('slips')
+        .upload(filePath, pendingSlipFile);
 
-        // Get Public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('slips')
-          .getPublicUrl(filePath);
-
-        // Update state with Public URL
-        setSlipFileName(publicUrl);
-        setShowSlipPreview(false);
-
-        // Clean up local preview
-        if (slipPreviewUrl) {
-          URL.revokeObjectURL(slipPreviewUrl);
-        }
-        setPendingSlipFile(null);
-        setSlipPreviewUrl('');
-
-        showToastMsg('อัพโหลดสลิปสำเร็จ', 'success');
-      } catch (error) {
-        console.error('Error uploading slip:', error);
-        showToastMsg('เกิดข้อผิดพลาดในการอัพโหลดสลิป', 'error');
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        showToastMsg('อัพโหลดสลิปไม่สำเร็จ กรุณาลองใหม่', 'error');
+        // Don't close the modal so user can retry
+        return;
       }
+
+      // Get Public URL
+      const { data } = supabase.storage
+        .from('slips')
+        .getPublicUrl(filePath);
+
+      if (!data || !data.publicUrl) {
+        console.error('Failed to get public URL');
+        showToastMsg('ไม่สามารถรับ URL สลิปได้ กรุณาลองใหม่', 'error');
+        return;
+      }
+
+      // Update state with Public URL
+      setSlipFileName(data.publicUrl);
+
+      // Close preview modal
+      setShowSlipPreview(false);
+
+      // Clean up local preview
+      if (slipPreviewUrl) {
+        URL.revokeObjectURL(slipPreviewUrl);
+      }
+      setPendingSlipFile(null);
+      setSlipPreviewUrl('');
+
+      showToastMsg('อัพโหลดสลิปสำเร็จ', 'success');
+    } catch (error) {
+      console.error('Error uploading slip:', error);
+      showToastMsg('เกิดข้อผิดพลาดในการอัพโหลดสลิป', 'error');
+      // Clean up state to prevent further issues
+      setShowSlipPreview(false);
+      setPendingSlipFile(null);
+      if (slipPreviewUrl) {
+        URL.revokeObjectURL(slipPreviewUrl);
+      }
+      setSlipPreviewUrl('');
     }
   };
 
