@@ -232,13 +232,13 @@ const GlobalStyles = () => (
        font-style: normal;
     }
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Anuphan:wght@400;700&display=swap');
-    
-    body { 
-        font-family: 'Foxgraphie', 'Plus Jakarta Sans', 'Anuphan', sans-serif; 
-        -webkit-tap-highlight-color: transparent; 
+
+    body {
+        font-family: 'Foxgraphie', 'Plus Jakarta Sans', 'Anuphan', sans-serif;
+        -webkit-tap-highlight-color: transparent;
         overscroll-behavior-y: none;
     }
-    
+
     .font-extra-thick {
         font-weight: 900;
         text-shadow: 0.5px 0 0 currentColor;
@@ -697,7 +697,7 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
       </div>
       <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการออกจากระบบ?</h3>
       <p className="text-gray-500 text-sm leading-relaxed font-medium">คุณต้องการออกจากระบบใช่หรือไม่</p>
-      <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">การออกจาระบบส่งผลให้รายการในออเดอร์ของคุณถูกลบ</p>
+      <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">การออกจากระบบส่งผลให้เมนูในออเดอร์ของคุณถูกลบ</p>
       <div className="flex gap-3">
         <button onClick={onCancel} className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-100 active:scale-95 transition-transform">ยกเลิก</button>
         <button onClick={onConfirm} className="flex-1 py-4 rounded-2xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 active:scale-95 transition-transform">ออกเลย</button>
