@@ -2178,6 +2178,8 @@ const MainApp = ({ onLogout, currentUser }) => {
   useEffect(() => {
     if (!currentUser) return;
 
+    console.log('[REALTIME] Setting up subscriptions for user:', currentUser.id);
+
     const ordersChannel = supabase
       .channel('orders-realtime')
       .on(
@@ -2189,7 +2191,7 @@ const MainApp = ({ onLogout, currentUser }) => {
           filter: `user_id=eq.${currentUser.id}`,
         },
         (payload) => {
-          console.log('Realtime order update:', payload);
+          console.log('[REALTIME] Order update received:', payload);
 
           if (payload.eventType === 'INSERT') {
             const newOrder = {
@@ -2198,8 +2200,10 @@ const MainApp = ({ onLogout, currentUser }) => {
               slipFileName: payload.new.slip_file_name,
               createdAt: payload.new.created_at,
             };
+            console.log('[REALTIME] Adding new order:', newOrder);
             setOrders((prev) => [newOrder, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
+            console.log('[REALTIME] Updating order:', payload.new.id, 'Status:', payload.new.status);
             setOrders((prev) =>
               prev.map((order) =>
                 order.id === payload.new.id
@@ -2224,11 +2228,14 @@ const MainApp = ({ onLogout, currentUser }) => {
                 : prev
             );
             // Show push notification when order status changes
+            console.log('[REALTIME] Showing notification for order:', payload.new.id);
             showOrderStatusNotification(payload.new.id, payload.new.status);
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[REALTIME] Orders channel status:', status);
+      });
 
     // Listen to notifications changes
     const notificationsChannel = supabase
@@ -2242,13 +2249,16 @@ const MainApp = ({ onLogout, currentUser }) => {
           filter: `user_id=eq.${currentUser.id}`,
         },
         (payload) => {
-          console.log('Realtime notification:', payload);
+          console.log('[REALTIME] Notification received:', payload);
           setNotifications((prev) => [payload.new, ...prev]);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[REALTIME] Notifications channel status:', status);
+      });
 
     return () => {
+      console.log('[REALTIME] Cleaning up subscriptions');
       supabase.removeChannel(ordersChannel);
       supabase.removeChannel(notificationsChannel);
     };
