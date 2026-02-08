@@ -232,13 +232,13 @@ const GlobalStyles = () => (
        font-style: normal;
     }
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Anuphan:wght@400;700&display=swap');
-
-    body {
-        font-family: 'Foxgraphie', 'Plus Jakarta Sans', 'Anuphan', sans-serif;
-        -webkit-tap-highlight-color: transparent;
+    
+    body { 
+        font-family: 'Foxgraphie', 'Plus Jakarta Sans', 'Anuphan', sans-serif; 
+        -webkit-tap-highlight-color: transparent; 
         overscroll-behavior-y: none;
     }
-
+    
     .font-extra-thick {
         font-weight: 900;
         text-shadow: 0.5px 0 0 currentColor;
@@ -758,7 +758,7 @@ const PaymentFlowModal = ({
   if (!visible) return null;
 
   const titleMap = {
-    selection: 'สรุปรายการและชำระเงิน',
+    selection: 'สรุปออเดอร์และชำระเงิน',
     cash_review: 'ยืนยันการชำระเงินสด',
     promptpay_review: 'ชำระผ่าน PromptPay',
   };
@@ -977,15 +977,15 @@ const PaymentFlowModal = ({
           {step === 'selection' && (
             <>
               <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-4 flex flex-col gap-3">
+                <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} highlight />
+                <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">ยอดรวม</p>
-                    <p className="text-2xl font-black text-gray-900">{formatBaht(subtotal)}</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-500">ชำระทั้งสิ้น</p>
+                    <p className="text-4xl font-bold text-[#00704A]">{formatBaht(finalTotal)}</p>
                   </div>
                   <CircleDollarSign size={32} className="text-[#00704A]" />
                 </div>
-                <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
-                <PaymentSummaryRow label="ชำระทั้งสิ้น" value={formatBaht(finalTotal)} highlight />
               </div>
 
               <div className="space-y-3">
@@ -3090,10 +3090,10 @@ const MainApp = ({ onLogout, currentUser }) => {
             <div className="p-6 rounded-[32px] shadow-xl border pointer-events-auto mt-2 bg-white/80 backdrop-blur-xl space-y-5" style={{ borderColor: '#f3f4f6' }}>
               <div className="flex items-center justify-between">
                 <div className="flex flex-col">
-                  <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">จำนวนสินค้า</p>
+                  <p className="text-[10px] font-bold uppercase text-gray-400 tracking-widest mb-1">จำนวนเมนู</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-black text-gray-900">{cart.length}</span>
-                    <span className="text-sm font-bold text-gray-400">รายการ</span>
+                    <span className="text-sm font-bold text-gray-400">เมนู</span>
                   </div>
                 </div>
                 <div className="flex flex-col items-end">
