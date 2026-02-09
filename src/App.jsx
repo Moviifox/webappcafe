@@ -191,6 +191,18 @@ const calculatePromotionDiscount = (subtotal, promotion) => {
   return 0;
 };
 
+// คำนวณ points ที่จะได้รับจากยอดที่จ่ายจริง (฿50 = 1 point, ปัดเป็นทศนิยม .25)
+const calculatePointsFromOrder = (paidAmount) => {
+  const rawPoints = paidAmount / 50;
+  return Math.floor(rawPoints * 4) / 4; // ปัดเป็น 0.25
+};
+
+// คำนวณส่วนลดจาก points (2 points = ฿1, สูงสุด ฿50)
+const calculatePointsDiscount = (pointsToUse, availablePoints) => {
+  const maxUsablePoints = Math.min(pointsToUse, availablePoints, 100); // max 100 points = ฿50
+  return Math.floor(maxUsablePoints / 2); // 2 points = ฿1
+};
+
 // --- GLOBAL STYLES ---
 const GlobalStyles = () => (
   <style dangerouslySetInnerHTML={{
@@ -474,8 +486,8 @@ const MenuCard = React.memo(({ menu, onSelect }) => {
         <div className="flex items-center gap-2 flex-wrap -mt-1">
           {hasDiscount ? (
             <>
-              <span className="text-[20px] font-extra-thick text-red-500">฿{displayPrice}</span>
-              <span className="text-[12px] text-gray-400 line-through">฿{displayPrice + menu.discount}</span>
+              <span className="text-[20px] font-extra-thick text-red-500">฿{displayPrice - menu.discount}</span>
+              <span className="text-[12px] text-gray-400 line-through">฿{displayPrice}</span>
               <Tag size={12} className="text-red-500" />
             </>
           ) : (
@@ -751,6 +763,12 @@ const PaymentFlowModal = ({
   slipError,
   onRetrySlip,
   onRemoveSlip,
+  // Points props
+  userPoints,
+  pointsToRedeem,
+  onPointsChange,
+  pointsDiscount,
+  pointsToEarn,
 }) => {
   const fileInputRef = useRef(null);
   const [showImageViewer, setShowImageViewer] = useState(false);
@@ -1030,6 +1048,56 @@ const PaymentFlowModal = ({
                 )}
               </div>
 
+              {/* Points Redemption Section */}
+              {userPoints > 0 && (
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">ใช้ Point แลกส่วนลด</label>
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-gray-600">Point ของคุณ</span>
+                      <span className="text-lg font-black text-[#00704A]">{userPoints.toFixed(2)} pts</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-gray-500">ใช้ points</span>
+                        <span className="font-bold text-gray-800">{pointsToRedeem} pts</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max={Math.min(userPoints, 100)}
+                        step="2"
+                        value={pointsToRedeem}
+                        onChange={(e) => onPointsChange(Number(e.target.value))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00704A]"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>0</span>
+                        <span>{Math.min(userPoints, 100)} pts (สูงสุด ฿50)</span>
+                      </div>
+                    </div>
+                    {pointsToRedeem > 0 && (
+                      <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl">
+                        <span className="text-sm font-bold text-[#00704A]">ส่วนลดจาก Points</span>
+                        <span className="text-lg font-black text-[#00704A]">- ฿{pointsDiscount}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-400 text-center">2 points = ฿1 | สูงสุด 100 points (฿50) ต่อออเดอร์</p>
+                </div>
+              )}
+
+              {/* Points to Earn Preview */}
+              {pointsToEarn > 0 && (
+                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-600">⭐</span>
+                    <span className="text-sm font-bold text-amber-700">จะได้รับ</span>
+                  </div>
+                  <span className="text-lg font-black text-amber-600">+{pointsToEarn.toFixed(2)} pts</span>
+                </div>
+              )}
+
               <div className="space-y-3">
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest">วิธีการชำระเงิน</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -1299,7 +1367,7 @@ const SlipDeleteConfirmModal = ({ visible, onConfirm, onCancel }) => {
   );
 };
 
-const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg }) => {
+const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg, pointTransactions = [] }) => {
   const [paymentMethod, setPaymentMethod] = useState(order?.paymentMethod || 'cash');
   const [slipFileName, setSlipFileName] = useState(order?.slipFileName || '');
   const [isEditing, setIsEditing] = useState(false);
@@ -1575,12 +1643,48 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
               </>
             )}
 
-            {order.promotion && (
-              <div className="flex justify-between pt-3 border-t border-gray-100">
-                <span className="text-sm font-bold text-gray-600">โปรโมชั่น</span>
-                <span className="text-sm font-black text-gray-900">{order.promotion.code}</span>
-              </div>
-            )}
+            {/* Promotion & Points Details */}
+            {/* Promotion & Points Details */}
+            {/* Promotion & Points Details */}
+            {(() => {
+              const earnedTx = pointTransactions?.find(tx => tx.order_id === order.id && tx.type === 'earn');
+              const showPromo = order.promotion?.code || order.promotion?.points_used > 0;
+              const showEarned = (order.status === 'paid' || order.status === 'completed') && earnedTx;
+
+              if (!showPromo && !showEarned) return null;
+
+              return (
+                <div className="pt-3 border-t border-gray-100 space-y-2">
+                  {order.promotion?.code && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-gray-600">โปรโมชั่นที่ใช้</span>
+                      <span className="text-sm font-black text-gray-900 bg-gray-100 px-2 py-1 rounded-lg">
+                        {order.promotion.code}
+                      </span>
+                    </div>
+                  )}
+
+                  {order.promotion?.points_used > 0 && (
+                    <div className="flex justify-between items-center text-[#00704A]">
+                      <span className="text-sm font-bold">ใช้ {order.promotion.points_used} Point</span>
+                      <span className="text-sm font-black">-฿{order.promotion.points_discount?.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {/* Points Earned */}
+                  {showEarned && (
+                    <div className="flex justify-between items-center text-[#f59e0b]">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-bold">ได้รับ Point</span>
+                      </div>
+                      <span className="text-[10px] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded text-[#f59e0b] font-bold">
+                        +{earnedTx.points.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* แสดงสลิปสำหรับออเดอร์ที่สำเร็จแล้ว */}
             {(order.slip_file_name || order.slipFileName) && !canEditPayment && (
@@ -1675,12 +1779,70 @@ const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
   );
 };
 
+// --- POINTS HISTORY MODAL ---
+const PointsHistoryModal = ({ visible, userPoints, transactions, onClose }) => {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-[301] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+        <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
+          <div className="w-10" />
+          <h2 className="text-lg font-black text-gray-900">Point ของคุณ</h2>
+          <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Points Balance Card */}
+        <div className="p-6 border-b border-gray-100">
+          <div className="bg-gradient-to-br from-[#00704A] to-[#004d35] rounded-[28px] p-6 text-white shadow-lg">
+            <p className="text-sm font-bold text-white/70">ยอด Point ปัจจุบัน</p>
+            <p className="text-4xl font-black mt-1">{userPoints.toFixed(2)} <span className="text-lg font-bold text-white/70">pts</span></p>
+            <p className="text-xs text-white/50 mt-3">฿50 = 1 point | 2 points = ฿1 ส่วนลด</p>
+          </div>
+        </div>
+
+        {/* Transactions List */}
+        <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
+          <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">ประวัติ Points</h3>
+          {transactions.length === 0 ? (
+            <EmptyState icon={History} title="ยังไม่มีประวัติ Points" description="เมื่อคุณสะสมหรือใช้ Points ประวัติจะแสดงที่นี่" />
+          ) : (
+            <div className="space-y-3">
+              {transactions.map(tx => (
+                <div key={tx.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'earn' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                        {tx.type === 'earn' ? '➕' : '➖'}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{tx.type === 'earn' ? 'ได้รับ Point' : 'ใช้ Point'}</p>
+                        <p className="text-xs text-gray-400 line-clamp-1">{tx.description || tx.order_id}</p>
+                      </div>
+                    </div>
+                    <span className={`text-lg font-black ${tx.type === 'earn' ? 'text-green-600' : 'text-orange-600'}`}>
+                      {tx.type === 'earn' ? '+' : ''}{tx.points?.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">{formatDateTime(tx.created_at)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- NOTIFICATION MODAL ---
 const NOTIFICATION_STATUS_META = {
   waiting_payment: { icon: '💳', label: 'รอการชำระเงิน', color: '#f97316' },
   waiting_confirmation: { icon: '🔍', label: 'กำลังตรวจสอบ', color: '#3b82f6' },
   paid: { icon: '✅', label: 'ชำระเงินสำเร็จ', color: '#16a34a' },
   completed: { icon: '🎉', label: 'ออเดอร์สำเร็จ', color: '#8b5cf6' },
+  points: { icon: '🪙', label: 'แต้มสะสม', color: '#f59e0b' },
 };
 
 const NotificationModal = ({ notifications, visible, onClose, onViewOrder, onOpen }) => {
@@ -1726,7 +1888,11 @@ const NotificationModal = ({ notifications, visible, onClose, onViewOrder, onOpe
                             <span className="w-2 h-2 rounded-full bg-[#00704A] flex-shrink-0" />
                           )}
                         </div>
-                        <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
+                        {notif.message ? (
+                          <p className="text-xs font-bold mt-0.5 line-clamp-1" style={{ color: meta.color }}>{notif.message}</p>
+                        ) : (
+                          <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
+                        )}
                         <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.created_at || notif.createdAt)}</p>
                       </div>
                     </div>
@@ -2017,6 +2183,12 @@ const MainApp = ({ onLogout, currentUser }) => {
   const [dbPromotions, setDbPromotions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Points system states
+  const [userPoints, setUserPoints] = useState(0);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [pointTransactions, setPointTransactions] = useState([]);
+  const [showPointsHistory, setShowPointsHistory] = useState(false);
+
   // โหลด cart จาก localStorage เมื่อเปิดแอป
   const isCartInitialized = useRef(false);
 
@@ -2078,6 +2250,20 @@ const MainApp = ({ onLogout, currentUser }) => {
       const { data: addonsData } = await supabase.from('menu_addons').select('*');
       const { data: newsData } = await supabase.from('news').select('*').order('date', { ascending: false });
       const { data: promotionsData } = await supabase.from('promotions').select('*');
+
+      // Fetch user's points from users table
+      const { data: userData } = await supabase
+        .from('users')
+        .select('points')
+        .eq('id', currentUser?.id)
+        .single();
+
+      // Fetch user's point transactions
+      const { data: pointTxData } = await supabase
+        .from('point_transactions')
+        .select('*')
+        .eq('user_id', currentUser?.id)
+        .order('created_at', { ascending: false });
 
       // Fetch user's orders
       const { data: ordersData } = await supabase
@@ -2144,6 +2330,8 @@ const MainApp = ({ onLogout, currentUser }) => {
       setOrders(transformedOrders);
       setPromotionUsage(usageMap);
       setNotifications(notificationsData || []);
+      setUserPoints(userData?.points || 0);
+      setPointTransactions(pointTxData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -2204,8 +2392,24 @@ const MainApp = ({ onLogout, currentUser }) => {
             setOrders((prev) => [newOrder, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
             console.log('[REALTIME] Updating order:', payload.new.id, 'Status:', payload.new.status);
-            setOrders((prev) =>
-              prev.map((order) =>
+
+            const isNowPaid = payload.new.status === 'paid';
+            let shouldProcessPoints = false;
+            let orderTotal = 0;
+
+            // อัปเดต orders และเช็คว่าควรเพิ่ม points หรือไม่
+            setOrders((prev) => {
+              const oldOrder = prev.find(o => o.id === payload.new.id);
+              const wasNotPaid = oldOrder && oldOrder.status !== 'paid';
+
+              // ถ้าสถานะเปลี่ยนจากไม่ใช่ paid เป็น paid ให้เพิ่ม points
+              if (wasNotPaid && isNowPaid) {
+                shouldProcessPoints = true;
+                orderTotal = payload.new.total || 0;
+                console.log('[REALTIME] Status changed to paid. Old status:', oldOrder?.status, 'Total:', orderTotal);
+              }
+
+              return prev.map((order) =>
                 order.id === payload.new.id
                   ? {
                     ...payload.new,
@@ -2214,8 +2418,9 @@ const MainApp = ({ onLogout, currentUser }) => {
                     createdAt: payload.new.created_at,
                   }
                   : order
-              )
-            );
+              );
+            });
+
             // Update focusedOrder if currently viewing the updated order
             setFocusedOrder((prev) =>
               prev && prev.id === payload.new.id
@@ -2227,9 +2432,134 @@ const MainApp = ({ onLogout, currentUser }) => {
                 }
                 : prev
             );
+
             // Show push notification when order status changes
             console.log('[REALTIME] Showing notification for order:', payload.new.id);
             showOrderStatusNotification(payload.new.id, payload.new.status);
+
+            // จัดการ points เมื่อสถานะเปลี่ยนเป็น paid (ต้องทำหลัง setOrders เพราะ shouldProcessPoints ถูก set ใน callback)
+            setTimeout(async () => {
+              if (shouldProcessPoints && orderTotal > 0) {
+                console.log('[REALTIME] Processing points for paid order:', payload.new.id);
+
+                // อ่านข้อมูล points ที่ใช้จาก promotion field
+                const promotion = payload.new.promotion;
+                const pointsUsed = promotion?.points_used || 0;
+                const pointsDiscountAmount = promotion?.points_discount || 0;
+
+                // ดึงยอด points ปัจจุบันจาก DB
+                const { data: userData, error: selectError } = await supabase
+                  .from('users')
+                  .select('points')
+                  .eq('id', currentUser?.id)
+                  .single();
+
+                if (selectError) {
+                  console.error('[REALTIME] Error fetching user points:', selectError);
+                  return;
+                }
+
+                let currentBalance = Number(userData?.points) || 0;
+                console.log('[REALTIME] Current points balance:', currentBalance);
+
+                // หัก points ที่ใช้แลกส่วนลด
+                if (pointsUsed > 0) {
+                  console.log('[REALTIME] Deducting redeemed points:', pointsUsed);
+
+                  // บันทึก transaction การใช้ points
+                  const { error: redeemError } = await supabase.from('point_transactions').insert([{
+                    user_id: currentUser?.id,
+                    order_id: payload.new.id,
+                    points: -pointsUsed,
+                    type: 'redeem',
+                    description: `ใช้แลกส่วนลด ฿${pointsDiscountAmount} ออเดอร์ ${payload.new.id}`,
+                  }]);
+
+                  if (redeemError) {
+                    console.error('[REALTIME] Error inserting redeem transaction:', redeemError);
+                  } else {
+                    currentBalance -= pointsUsed;
+                  }
+                }
+
+                // เพิ่ม points ที่ได้รับ
+                const earnedPoints = calculatePointsFromOrder(orderTotal);
+                console.log('[REALTIME] Points to earn:', earnedPoints);
+
+                if (earnedPoints > 0) {
+                  // บันทึก transaction การได้รับ points
+                  const { error: earnError } = await supabase.from('point_transactions').insert([{
+                    user_id: currentUser?.id,
+                    order_id: payload.new.id,
+                    points: earnedPoints,
+                    type: 'earn',
+                    description: `สะสมจากออเดอร์ ${payload.new.id} (฿${orderTotal})`,
+                  }]);
+
+                  if (earnError) {
+                    console.error('[REALTIME] Error inserting earn transaction:', earnError);
+                  } else {
+                    currentBalance += earnedPoints;
+                  }
+                }
+
+                // อัปเดตยอด points ใน users table
+                const { error: updateError } = await supabase
+                  .from('users')
+                  .update({ points: currentBalance })
+                  .eq('id', currentUser?.id);
+
+                if (updateError) {
+                  console.error('[REALTIME] Error updating user points:', updateError);
+                  return;
+                }
+
+                // อัปเดต local state
+                setUserPoints(currentBalance);
+
+                // Refetch point transactions เพื่ออัปเดตประวัติ
+                const { data: newTxData } = await supabase
+                  .from('point_transactions')
+                  .select('*')
+                  .eq('user_id', currentUser?.id)
+                  .order('created_at', { ascending: false });
+                if (newTxData) setPointTransactions(newTxData);
+
+                // แสดง toast
+                let toastMsg = '';
+                if (pointsUsed > 0 && earnedPoints > 0) {
+                  toastMsg = `ใช้ ${pointsUsed} pts, ได้รับ ${earnedPoints.toFixed(2)} pts`;
+                } else if (pointsUsed > 0) {
+                  toastMsg = `ใช้ ${pointsUsed} points แล้ว`;
+                } else if (earnedPoints > 0) {
+                  toastMsg = `ได้รับ ${earnedPoints.toFixed(2)} points!`;
+                }
+                if (toastMsg) showToastMsg(toastMsg, 'success');
+
+                // สร้าง Notification ในรายการแจ้งเตือน (แต่ไม่ Push)
+                if (toastMsg) {
+                  try {
+                    const { error: notifError } = await supabase.from('notifications').insert([{
+                      user_id: currentUser?.id,
+                      order_id: payload.new.id,
+                      status: 'points', // ใช้ icon เหรียญ
+                      message: toastMsg,
+                      read: false
+                    }]);
+
+                    if (notifError) {
+                      console.error('[REALTIME] Error inserting notification:', notifError);
+                    } else {
+                      console.log('[REALTIME] Notification inserted successfully');
+                    }
+                  } catch (err) {
+                    console.error('[REALTIME] Unexpected error inserting notification:', err);
+                  }
+                }
+
+                console.log('[REALTIME] Points updated. New balance:', currentBalance);
+              }
+            }, 100);
           }
         }
       )
@@ -2456,7 +2786,10 @@ const MainApp = ({ onLogout, currentUser }) => {
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price || 0), 0), [cart]);
   const promotionDiscount = useMemo(() => calculatePromotionDiscount(subtotal, appliedPromotion), [subtotal, appliedPromotion]);
-  const finalTotal = useMemo(() => Math.max(0, subtotal - promotionDiscount), [subtotal, promotionDiscount]);
+  const pointsDiscount = useMemo(() => calculatePointsDiscount(pointsToRedeem, userPoints), [pointsToRedeem, userPoints]);
+  const totalDiscount = useMemo(() => promotionDiscount + pointsDiscount, [promotionDiscount, pointsDiscount]);
+  const finalTotal = useMemo(() => Math.max(0, subtotal - totalDiscount), [subtotal, totalDiscount]);
+  const pointsToEarn = useMemo(() => calculatePointsFromOrder(finalTotal), [finalTotal]);
   const isGlobalSearchEmpty = globalSearchResults.promos.length === 0 && globalSearchResults.news.length === 0 && globalSearchResults.menus.length === 0;
 
   // REMOVED: Nav bar hiding logic based on search state. Nav bar is now always visible.
@@ -2594,16 +2927,24 @@ const MainApp = ({ onLogout, currentUser }) => {
     const itemsSnapshot = cart.map(item => ({ ...item }));
 
     // สร้าง order record สำหรับ Supabase
+    const actualPointsUsed = pointsToRedeem > 0 ? Math.min(pointsToRedeem, userPoints, 100) : 0;
     const supabaseOrder = {
       id: orderId,
       user_id: currentUser?.id,
       items: itemsSnapshot,
       subtotal,
-      discount: promotionDiscount,
+      discount: totalDiscount, // รวมส่วนลดทั้งหมด (promo + points)
       total: finalTotal,
       payment_method: method,
       status,
-      promotion: appliedPromotion ? { ...appliedPromotion } : null,
+      promotion: appliedPromotion ? {
+        ...appliedPromotion,
+        points_used: actualPointsUsed,
+        points_discount: pointsDiscount,
+      } : (actualPointsUsed > 0 ? {
+        points_used: actualPointsUsed,
+        points_discount: pointsDiscount,
+      } : null),
       slip_file_name: slipFileName || null,
     };
 
@@ -2617,12 +2958,15 @@ const MainApp = ({ onLogout, currentUser }) => {
         return;
       }
 
+      // หมายเหตุ: points จะถูกหักเมื่อ order เปลี่ยนสถานะเป็น paid
+      // (ดูใน realtime handler)
+
       // สร้าง order record สำหรับ local state (รูปแบบเดิม)
       const orderRecord = {
         id: orderId,
         items: itemsSnapshot,
         subtotal,
-        discount: promotionDiscount,
+        discount: totalDiscount,
         total: finalTotal,
         paymentMethod: method,
         status,
@@ -2662,6 +3006,7 @@ const MainApp = ({ onLogout, currentUser }) => {
       setSlipFileName('');
       setSlipError('');
       setIsCheckingSlip(false);
+      setPointsToRedeem(0); // Reset points redemption
     } catch (err) {
       console.error('Error:', err);
       showToastMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
@@ -2832,6 +3177,38 @@ const MainApp = ({ onLogout, currentUser }) => {
           ? { ...prev, paymentMethod: updates.paymentMethod, status: updates.status, slipFileName: updates.slipFileName }
           : prev
       );
+
+      // จัดการ points เมื่อสถานะเปลี่ยนเป็น paid
+      if (updates.status === 'paid') {
+        const order = orders.find(o => o.id === orderId);
+        if (order) {
+          const earnedPoints = calculatePointsFromOrder(order.total || 0);
+
+          if (earnedPoints > 0) {
+            // บันทึก transaction การได้รับ points
+            await supabase.from('point_transactions').insert([{
+              user_id: currentUser?.id,
+              order_id: orderId,
+              points: earnedPoints,
+              type: 'earn',
+              description: `สะสมจากออเดอร์ ${orderId} (฿${order.total})`,
+            }]);
+
+            // อัปเดตยอด points ใน users table
+            const newBalance = userPoints + earnedPoints;
+            await supabase
+              .from('users')
+              .update({ points: newBalance })
+              .eq('id', currentUser?.id);
+
+            // อัปเดต local state
+            setUserPoints(newBalance);
+
+            showToastMsg(`อัพเดทสำเร็จ! ได้รับ ${earnedPoints.toFixed(2)} points`, 'success');
+            return;
+          }
+        }
+      }
 
       showToastMsg('อัพเดทออเดอร์สำเร็จ', 'success');
     } catch (err) {
@@ -3192,7 +3569,7 @@ const MainApp = ({ onLogout, currentUser }) => {
         visible={showPaymentFlow}
         cart={cart}
         subtotal={subtotal}
-        discount={promotionDiscount}
+        discount={totalDiscount}
         finalTotal={finalTotal}
         step={paymentStep}
         paymentMethod={selectedPaymentMethod}
@@ -3215,6 +3592,11 @@ const MainApp = ({ onLogout, currentUser }) => {
         slipError={slipError}
         onRetrySlip={handleRetrySlip}
         onRemoveSlip={handleRemoveSlip}
+        userPoints={userPoints}
+        pointsToRedeem={pointsToRedeem}
+        onPointsChange={setPointsToRedeem}
+        pointsDiscount={pointsDiscount}
+        pointsToEarn={pointsToEarn}
       />
 
       <PaymentResultModal
@@ -3232,6 +3614,7 @@ const MainApp = ({ onLogout, currentUser }) => {
         onClose={handleCloseOrderDetail}
         onUpdateOrder={handleUpdateOrder}
         showToastMsg={showToastMsg}
+        pointTransactions={pointTransactions}
       />
 
       <OrderHistoryModal
@@ -3289,16 +3672,25 @@ const MainApp = ({ onLogout, currentUser }) => {
               </div>
             </div>
             <div className="flex justify-between border-t border-white/10 pt-8 relative z-10">
-              <div>
+              <button onClick={() => setShowPointsHistory(true)} className="text-left">
                 <p className="text-[10px] font-bold uppercase mb-1 text-gray-400">Point Balance</p>
-                <p className="text-3xl font-black">{currentUser?.points || 0} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
-              </div>
+                <p className="text-3xl font-black">{userPoints.toFixed(2)} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
+                <p className="text-[10px] text-white/50 mt-1">แตะเพื่อดูประวัติ Points</p>
+              </button>
               <QrCode size={50} className="opacity-30" />
             </div>
           </div>
           <button onClick={() => setShowLogoutConfirm(true)} className="w-full py-5 text-red-500 rounded-[28px] shadow-sm bg-white border border-[#f3f4f6] font-bold flex items-center justify-center gap-2"><LogOut size={20} /> ออกจากระบบ</button>
         </div>
       )}
+
+      {/* Points History Modal */}
+      <PointsHistoryModal
+        visible={showPointsHistory}
+        userPoints={userPoints}
+        transactions={pointTransactions}
+        onClose={() => setShowPointsHistory(false)}
+      />
 
       {/* Global Styles */}
       <GlobalStyles />
