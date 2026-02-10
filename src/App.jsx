@@ -797,11 +797,34 @@ const PaymentFlowModal = ({
 
   const handleSaveQR = async () => {
     const qrUrl = `https://promptpay.io/0619961130/${finalTotal}`;
+    const orderNumber = Math.floor(Math.random() * 9000) + 1000;
+    const fileName = `qr-${orderNumber}.png`;
+
+    const downloadOrShare = async (blob) => {
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      // Mobile: use Web Share to save to Photos (if supported)
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+        } catch (err) {
+          if (err.name !== 'AbortError') console.error('Share failed', err);
+        }
+      } else {
+        // Desktop: download file
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      }
+    };
 
     try {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      const orderNumber = Math.floor(Math.random() * 9000) + 1000;
 
       canvas.width = 400;
       canvas.height = 580;
@@ -932,25 +955,23 @@ const PaymentFlowModal = ({
 
       // Get blob
       const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-      if (!blob) { window.open(qrUrl + '.png', '_blank'); return; }
+      if (!blob) throw new Error('Canvas toBlob failed');
 
-      const file = new File([blob], `qr-${orderNumber}.png`, { type: 'image/png' });
+      await downloadOrShare(blob);
 
-      // Mobile: use Web Share to save to Photos
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file] });
-      } else {
-        // Desktop: download file
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
     } catch (e) {
-      console.error(e);
-      window.open(qrUrl + '.png', '_blank');
+      console.error('Canvas generation failed, trying fallback download...', e);
+      try {
+        // Fallback: fetch promptpay.io image directly
+        const fallbackUrl = qrUrl + '.png'; // e.g. https://promptpay.io/.../100.png
+        const response = await fetch(fallbackUrl);
+        if (!response.ok) throw new Error('Fetch failed');
+        const blob = await response.blob();
+        await downloadOrShare(blob);
+      } catch (err2) {
+        console.error('Fallback download failed', err2);
+        window.open(qrUrl + '.png', '_blank');
+      }
     }
   };
 
