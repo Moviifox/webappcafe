@@ -769,6 +769,7 @@ const PaymentFlowModal = ({
   onPointsChange,
   pointsDiscount,
   pointsToEarn,
+  orderNumber,
 }) => {
   const fileInputRef = useRef(null);
   const [showImageViewer, setShowImageViewer] = useState(false);
@@ -797,8 +798,8 @@ const PaymentFlowModal = ({
 
   const handleSaveQR = async () => {
     const qrUrl = `https://promptpay.io/0619961130/${finalTotal}`;
-    const orderNumber = Math.floor(Math.random() * 9000) + 1000;
-    const fileName = `qr-${orderNumber}.png`;
+    const displayOrderNumber = orderNumber || Math.floor(Math.random() * 9000) + 1000;
+    const fileName = `qr-${displayOrderNumber}.png`;
 
     const downloadOrShare = async (blob) => {
       const file = new File([blob], fileName, { type: 'image/png' });
@@ -826,8 +827,9 @@ const PaymentFlowModal = ({
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
 
-      canvas.width = 400;
-      canvas.height = 580;
+      // Updated resolution to 800x1160 (2x of previous 400x580)
+      canvas.width = 800;
+      canvas.height = 1160;
 
       // Background
       ctx.fillStyle = '#ffffff';
@@ -835,11 +837,11 @@ const PaymentFlowModal = ({
 
       // Header bar
       ctx.fillStyle = '#00704A';
-      ctx.fillRect(0, 0, canvas.width, 70);
+      ctx.fillRect(0, 0, canvas.width, 140); // 70 * 2
       ctx.fillStyle = '#ffffff';
-      ctx.font = '600 18px Foxgraphie, sans-serif';
+      ctx.font = '600 36px Foxgraphie, sans-serif'; // 18px * 2
       ctx.textAlign = 'center';
-      ctx.fillText(`ชำระเงินผ่าน PromptPay #${orderNumber}`, 200, 42);
+      ctx.fillText(`ชำระเงินผ่าน PromptPay #${displayOrderNumber}`, 400, 84); // (200, 42) * 2
 
       // Generate PromptPay EMVCo payload (matches promptpay.io format exactly)
       const generatePromptPayPayload = (phone, amount) => {
@@ -879,7 +881,8 @@ const PaymentFlowModal = ({
       };
 
       const promptPayData = generatePromptPayPayload('0619961130', finalTotal);
-      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(promptPayData)}`;
+      // Increased size to 500x500 for better resolution on larger canvas
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(promptPayData)}`;
 
       const qrImg = new Image();
       qrImg.crossOrigin = 'anonymous';
@@ -898,28 +901,43 @@ const PaymentFlowModal = ({
 
       // Draw QR code
       if (qrLoaded) {
-        ctx.drawImage(qrImg, 100, 90, 200, 200);
+        // Scaled position and size: 100->200, 90->180, 200->400
+        ctx.drawImage(qrImg, 200, 180, 400, 400);
       }
 
       // Payment details section
       ctx.fillStyle = '#f3f4f6';
-      ctx.fillRect(30, 320, 340, 140);
+      // Scaled: 30->60, 320->640, 340->680, 140->280
+      // Draw rounded rectangle
+      const x = 60, y = 640, w = 680, h = 280, r = 32; // radius 16 * 2 = 32
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
 
       ctx.fillStyle = '#6b7280';
-      ctx.font = '400 14px Foxgraphie, sans-serif';
+      ctx.font = '400 28px Foxgraphie, sans-serif'; // 14px * 2
       ctx.textAlign = 'center';
-      ctx.fillText('ยอดชำระทั้งสิ้น', 200, 360);
+      ctx.fillText('ยอดชำระทั้งสิ้น', 400, 720); // (200, 360) * 2
 
       ctx.fillStyle = '#00704A';
-      ctx.font = '700 40px Foxgraphie, sans-serif';
-      ctx.fillText(`฿${finalTotal.toLocaleString()}`, 200, 410);
+      ctx.font = '700 80px Foxgraphie, sans-serif'; // 40px * 2
+      ctx.fillText(`฿${finalTotal.toLocaleString()}`, 400, 820); // (200, 410) * 2
 
       ctx.fillStyle = '#9ca3af';
-      ctx.font = '400 13px Foxgraphie, sans-serif';
-      ctx.fillText(`${cart.length} รายการ`, 200, 440);
+      ctx.font = '400 26px Foxgraphie, sans-serif'; // 13px * 2
+      ctx.fillText(`${cart.length} รายการ`, 400, 880); // (200, 440) * 2
 
-      ctx.font = '400 12px Foxgraphie, sans-serif';
-      ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', 200, 500);
+      ctx.font = '400 24px Foxgraphie, sans-serif'; // 12px * 2
+      ctx.fillText('สแกนด้วยแอปธนาคารเพื่อชำระเงิน', 400, 1000); // (200, 500) * 2
 
       // Load and draw icon
       const iconImg = new Image();
@@ -938,19 +956,21 @@ const PaymentFlowModal = ({
       // App name with icon
       const appName = 'My Cafe';
       ctx.fillStyle = '#00704A';
-      ctx.font = '700 20px Foxgraphie, sans-serif';
+      ctx.font = '700 40px Foxgraphie, sans-serif'; // 20px * 2
       const textWidth = ctx.measureText(appName).width;
 
       if (iconLoaded) {
-        const iconSize = 28;
-        const totalWidth = iconSize + 8 + textWidth;
-        const startX = (400 - totalWidth) / 2;
-        ctx.drawImage(iconImg, startX, 517, iconSize, iconSize);
+        const iconSize = 56; // 28 * 2
+        const totalWidth = iconSize + 16 + textWidth; // spacing 8 * 2 = 16
+        const startX = (800 - totalWidth) / 2;
+        // y: 517 * 2 = 1034
+        ctx.drawImage(iconImg, startX, 1034, iconSize, iconSize);
         ctx.textAlign = 'left';
-        ctx.fillText(appName, startX + iconSize + 8, 540);
+        // y: 540 * 2 = 1080
+        ctx.fillText(appName, startX + iconSize + 16, 1080);
       } else {
         ctx.textAlign = 'center';
-        ctx.fillText('☕ ' + appName, 200, 540);
+        ctx.fillText('☕ ' + appName, 400, 1080);
       }
 
       // Get blob
@@ -2195,6 +2215,7 @@ const MainApp = ({ onLogout, currentUser }) => {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedNews, setSelectedNews] = useState(null);
+  const [pendingOrderNumber, setPendingOrderNumber] = useState('');
 
   // Supabase data states
   const [dbMenus, setDbMenus] = useState([]);
@@ -2840,6 +2861,9 @@ const MainApp = ({ onLogout, currentUser }) => {
     setPromoInput(appliedPromotion ? appliedPromotion.code : '');
     setSlipFileName('');
     setSlipError('');
+    // Generate order number immediately when entering/re-entering payment flow
+    const newOrderId = generateOrderNumber();
+    setPendingOrderNumber(newOrderId);
     setShowPaymentFlow(true);
   };
 
@@ -2851,6 +2875,7 @@ const MainApp = ({ onLogout, currentUser }) => {
     setIsCheckingSlip(false);
     setSlipFileName('');
     setSlipError('');
+    setPendingOrderNumber('');
   };
 
   const handlePaymentNext = () => {
@@ -2944,7 +2969,7 @@ const MainApp = ({ onLogout, currentUser }) => {
   };
 
   const createOrderRecord = async (status, method) => {
-    const orderId = generateOrderNumber();
+    const orderId = pendingOrderNumber || generateOrderNumber();
     const itemsSnapshot = cart.map(item => ({ ...item }));
 
     // สร้าง order record สำหรับ Supabase
@@ -3028,6 +3053,7 @@ const MainApp = ({ onLogout, currentUser }) => {
       setSlipError('');
       setIsCheckingSlip(false);
       setPointsToRedeem(0); // Reset points redemption
+      setPendingOrderNumber('');
     } catch (err) {
       console.error('Error:', err);
       showToastMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
@@ -3618,6 +3644,7 @@ const MainApp = ({ onLogout, currentUser }) => {
         onPointsChange={setPointsToRedeem}
         pointsDiscount={pointsDiscount}
         pointsToEarn={pointsToEarn}
+        orderNumber={pendingOrderNumber}
       />
 
       <PaymentResultModal
