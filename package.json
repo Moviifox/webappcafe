@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@supabase/supabase-js": "^2.94.0",
     "@tanstack/react-virtual": "^3.13.13",
     "lucide-react": "^0.563.0",

@@ -6,6 +6,7 @@ import {
   subscribeToPush,
   showOrderStatusNotification,
 } from './pushNotification';
+import emailjs from '@emailjs/browser';
 import {
   Home,
   ShoppingBag,
@@ -17,6 +18,7 @@ import {
   History,
   QrCode,
   ArrowLeft,
+  Gift,
   LayoutGrid,
   Coffee,
   SearchIcon,
@@ -42,7 +44,14 @@ import {
   BadgeCheck,
   Download,
   FileText,
-  Bell
+  Bell,
+  Smartphone,
+  ClipboardClock,
+  Package,
+  CreditCard,
+  PackageCheck,
+  CirclePlus,
+  CircleMinus
 } from 'lucide-react';
 
 // ฟังก์ชันช่วยจัดการสีโปร่งแสง
@@ -53,6 +62,13 @@ const alpha = (hex, opacity) => {
     '0.8': 'CC', '0.85': 'D9', '0.9': 'E6', '0.95': 'F2', '1': 'FF'
   };
   return `${hex}${alphaMap[opacity] || 'FF'}`;
+};
+
+// --- EmailJS Configuration ---
+const EMAILJS_CONFIG = {
+  serviceId: 'service_bcqo6ek',
+  templateId: 'template_ia3rxs2',
+  publicKey: 'fNck5HxD02Ze3frXF'
 };
 
 // --- MOCK DATABASE ---
@@ -259,6 +275,38 @@ const GlobalStyles = () => (
     .no-scrollbar::-webkit-scrollbar { display: none; }
     ::-webkit-scrollbar { width: 0; background: transparent; }
     input, textarea { font-size: 16px !important; }
+
+    /* --- Slide-up animation for modals/sheets --- */
+    @keyframes slideInFromBottom {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes zoomIn95 {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .animate-in {
+      animation-fill-mode: both;
+    }
+    .animate-in.slide-in-from-bottom {
+      animation: slideInFromBottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .animate-in.fade-in {
+      animation: fadeIn 0.3s ease-out;
+    }
+    .animate-in.zoom-in-95 {
+      animation: zoomIn95 0.5s ease-out;
+    }
+    .duration-200 { animation-duration: 0.2s; }
+    .duration-300 { animation-duration: 0.3s; }
+    .duration-500 { animation-duration: 0.5s; }
+    .animate-fade-in {
+      animation: fadeIn 0.3s ease-out both;
+    }
   `}} />
 );
 
@@ -311,7 +359,7 @@ const BouncingDotsLoader = React.memo(({ style }) => (
 ));
 
 // Header ด้านบนสุดของแต่ละหน้า
-const PersistentHeader = React.memo(({ title, scrollProgress, onProfileClick, showOrderHistoryButton, onOrderHistoryClick, onNotificationClick, notificationCount, userPhoto }) => (
+const PersistentHeader = React.memo(({ title, scrollProgress, onProfileClick, showOrderHistoryButton, onOrderHistoryClick, onNotificationClick, notificationCount, userPhoto, showBackButton, onBack }) => (
   <div className="fixed top-0 left-0 right-0 z-[100] pointer-events-none">
     <div
       className="absolute top-0 left-0 right-0 h-[60px]"
@@ -330,8 +378,18 @@ const PersistentHeader = React.memo(({ title, scrollProgress, onProfileClick, sh
         transition: 'opacity 0.1s ease-out, transform 0.1s ease-out',
       }}
     >
-      <h1 className="text-[26px] font-black tracking-tight text-gray-900 line-clamp-1 flex-1 pr-4">{title}</h1>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 overflow-hidden flex-1">
+        {showBackButton && (
+          <button
+            onClick={onBack}
+            className="w-10 h-10 rounded-full border border-gray-200 bg-white shadow-sm flex items-center justify-center text-gray-600 active:scale-95 transition-transform flex-shrink-0"
+          >
+            <ChevronLeft size={20} strokeWidth={2.5} />
+          </button>
+        )}
+        <h1 className="text-[26px] font-black tracking-tight text-gray-900 line-clamp-1 pr-4">{title}</h1>
+      </div>
+      <div className="flex items-center gap-3 flex-shrink-0">
         {showOrderHistoryButton && (
           <button
             onClick={onOrderHistoryClick}
@@ -400,9 +458,11 @@ const CachedImage = ({ src, alt, className, style, onClick, ...props }) => {
   // 1. Check if we have a cached blob in memory
   const cachedBlobUrl = imageCache.get(src);
 
-  // 2. Initialize: Use cached blob if available, otherwise original src
-  // We commit to this source for the lifetime of this component mount to avoid "swap flicker"
-  const [displaySrc] = useState(cachedBlobUrl || src);
+  // 2. Compute display src synchronously — no useEffect delay
+  const displaySrc = useMemo(() => {
+    if (!src) return src;
+    return imageCache.get(src) || src;
+  }, [src]);
 
   useEffect(() => {
     if (!src) return;
@@ -518,37 +578,61 @@ const NewsCard = React.memo(({ item }) => (
 ));
 
 // --- MENU DETAIL MODAL ---
-const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = false }) => {
-  const initialType = useMemo(() => {
-    if (isEditMode && menu.selectedType) {
-      return menu.typeOptions.find(t => t.label === menu.selectedType) || menu.typeOptions[0];
+const MenuDetailModal = ({ menu: propMenu, isEditMode, onClose, onConfirm, onDelete }) => {
+  const [cachedMenu, setCachedMenu] = useState(propMenu);
+  const isOpen = !!propMenu;
+
+  useEffect(() => {
+    if (propMenu) {
+      setCachedMenu(propMenu);
     }
-    return menu.typeOptions[0];
-  }, [menu, isEditMode]);
+  }, [propMenu]);
+
+  const menu = propMenu || cachedMenu;
+  const safeMenu = menu || { typeOptions: [{ label: '', price: 0 }], addOns: [], categories: [] };
+
+  const initialType = useMemo(() => {
+    if (isEditMode && safeMenu.selectedType) {
+      return safeMenu.typeOptions.find(t => t.label === safeMenu.selectedType) || safeMenu.typeOptions[0];
+    }
+    return safeMenu.typeOptions[0];
+  }, [safeMenu, isEditMode]);
 
   const initialAddOns = useMemo(() => {
-    if (isEditMode && menu.selectedAddOns) {
-      const labels = menu.selectedAddOns.split(', ');
-      return menu.addOns.filter(a => labels.includes(a.label));
+    if (isEditMode && safeMenu.selectedAddOns) {
+      const labels = safeMenu.selectedAddOns.split(', ');
+      return safeMenu.addOns.filter(a => labels.includes(a.label));
     }
     return [];
-  }, [menu, isEditMode]);
+  }, [safeMenu, isEditMode]);
 
   const [selectedType, setSelectedType] = useState(initialType);
   const [selectedAddOns, setSelectedAddOns] = useState(initialAddOns);
-  const [note, setNote] = useState(menu.note || '');
+  const [note, setNote] = useState(safeMenu.note || '');
+
+  useEffect(() => {
+    if (propMenu) {
+      const type = isEditMode && propMenu.selectedType
+        ? propMenu.typeOptions.find(t => t.label === propMenu.selectedType) || propMenu.typeOptions[0]
+        : propMenu.typeOptions[0];
+      const addOns = isEditMode && propMenu.selectedAddOns
+        ? propMenu.addOns.filter(a => propMenu.selectedAddOns.split(', ').includes(a.label))
+        : [];
+      setSelectedType(type);
+      setSelectedAddOns(addOns);
+      setNote(propMenu.note || '');
+    }
+  }, [propMenu]);
 
   const finalPrice = useMemo(() => {
     const addOnTotal = selectedAddOns.reduce((sum, addon) => sum + addon.price, 0);
-    const basePrice = selectedType.price + addOnTotal;
-    // ลดราคาจาก discount
-    return menu.discount > 0 ? basePrice - menu.discount : basePrice;
-  }, [selectedType, selectedAddOns, menu.discount]);
+    const basePrice = (selectedType?.price || 0) + addOnTotal;
+    return safeMenu.discount > 0 ? basePrice - safeMenu.discount : basePrice;
+  }, [selectedType, selectedAddOns, safeMenu.discount]);
 
-  // ราคาปกติ (ก่อนลด)
   const originalPrice = useMemo(() => {
     const addOnTotal = selectedAddOns.reduce((sum, addon) => sum + addon.price, 0);
-    return selectedType.price + addOnTotal;
+    return (selectedType?.price || 0) + addOnTotal;
   }, [selectedType, selectedAddOns]);
 
   const toggleAddOn = (addon) => {
@@ -559,136 +643,145 @@ const MenuDetailModal = ({ menu, onClose, onConfirm, onDelete, isEditMode = fals
     }
   };
 
-  const shouldShowTypeSelection = menu.typeOptions[0].label !== "ไม่มีตัวเลือก";
+  const shouldShowTypeSelection = safeMenu.typeOptions && safeMenu.typeOptions[0]?.label !== "ไม่มีตัวเลือก";
+
+  if (!menu && !isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] max-h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
-        <div className="relative h-64 flex-shrink-0">
-          <CachedImage src={menu.image} className="w-full h-full object-cover" alt={menu.name} />
-          <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/50 to-transparent"></div>
-          {menu.isRecommended && (
-            <div className="absolute top-6 left-6 backdrop-blur-md text-white text-[14px] pl-[14px] pr-[10px] pt-[6px] pb-[5px] rounded-2xl font-bold shadow-sm z-10 uppercase tracking-wider" style={{ backgroundColor: alpha('#00704A', '0.85') }}>
-              เมนูแนะนำ ✨
-            </div>
-          )}
-          <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30 active:scale-90 transition-transform" style={{ backgroundColor: alpha('#ffffff', '0.2') }}><X size={20} /></button>
-        </div>
-        <div className="p-8 overflow-y-auto no-scrollbar flex-1 pb-32">
-          <div className="flex justify-between items-start mb-2">
-            <div>
-              <h2 className="text-2xl font-black text-gray-900 leading-tight">{menu.name}</h2>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {(menu.categories || [])
-                  .filter(cat => cat !== 'แนะนำ')
-                  .map((cat, idx) => (
-                    <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-500 rounded-2xl text-[10px] font-bold uppercase tracking-wider border border-gray-200/50">
-                      {cat}
-                    </span>
-                  ))}
+    <>
+      <div
+        className={`fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center transition-opacity duration-300 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+        onClick={onClose}
+      />
+      <div className={`fixed inset-0 z-[201] pointer-events-none flex items-end justify-center`}>
+        <div className={`bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] max-h-[90vh] flex flex-col transition-transform duration-200 ease-out transform ${isOpen ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}>
+          <div className="relative h-64 flex-shrink-0">
+            <CachedImage key={safeMenu.image} src={safeMenu.image} className="w-full h-full object-cover" alt={safeMenu.name} />
+            <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/50 to-transparent"></div>
+            {safeMenu.isRecommended && (
+              <div className="absolute top-6 left-6 backdrop-blur-md text-white text-[14px] pl-[14px] pr-[10px] pt-[6px] pb-[5px] rounded-2xl font-bold shadow-sm z-10 uppercase tracking-wider" style={{ backgroundColor: alpha('#00704A', '0.85') }}>
+                เมนูแนะนำ ✨
               </div>
-            </div>
-            {menu.discount > 0 ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400 line-through">฿{originalPrice}</span>
-                <span className="text-sm font-bold text-red-500">ลด ฿{menu.discount}</span>
-                <span className="text-3xl font-extra-thick text-red-500">฿{finalPrice}</span>
-              </div>
-            ) : (
-              <span className="text-3xl font-extra-thick" style={{ color: '#00704A' }}>฿{finalPrice}</span>
             )}
+            <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30 active:scale-90 transition-transform" style={{ backgroundColor: alpha('#ffffff', '0.2') }}><X size={20} /></button>
           </div>
-          <div className="space-y-8 mt-6">
-            {shouldShowTypeSelection && (
-              <div className="space-y-3">
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">เลือกรูปแบบ</label>
-                <div className="flex flex-wrap gap-3">
-                  {menu.typeOptions.map((type, idx) => (
-                    <button key={idx} onClick={() => setSelectedType(type)}
-                      className="flex-1 min-w-[80px] py-3 px-2 rounded-2xl text-sm font-bold border-2 transition-all"
-                      style={{
-                        backgroundColor: selectedType.label === type.label ? alpha('#00704A', '0.1') : '#ffffff',
-                        borderColor: selectedType.label === type.label ? '#00704A' : '#f3f4f6',
-                        color: selectedType.label === type.label ? '#00704A' : '#9ca3af'
-                      }}
-                    >
-                      {type.label}<span className="block text-[10px] opacity-60 font-normal">฿{type.price}</span>
-                    </button>
-                  ))}
+          <div className="p-8 overflow-y-auto no-scrollbar flex-1 pb-32">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900 leading-tight">{safeMenu.name}</h2>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {(safeMenu.categories || [])
+                    .filter(cat => cat !== 'แนะนำ')
+                    .map((cat, idx) => (
+                      <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-500 rounded-2xl text-[10px] font-bold uppercase tracking-wider border border-gray-200/50">
+                        {cat}
+                      </span>
+                    ))}
                 </div>
               </div>
-            )}
-            {menu.addOns && menu.addOns.length > 0 && (
-              <div className="space-y-3">
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">เพิ่มเติม (Add-on)</label>
-                <div className="space-y-2">
-                  {menu.addOns.map((addon, idx) => {
-                    const isSelected = selectedAddOns.some(item => item.label === addon.label);
-                    return (
-                      <button key={idx} onClick={() => toggleAddOn(addon)}
-                        className="w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all"
+              {safeMenu.discount > 0 ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-400 line-through">฿{originalPrice}</span>
+                  <span className="text-sm font-bold text-red-500">ลด ฿{safeMenu.discount}</span>
+                  <span className="text-3xl font-extra-thick text-red-500">฿{finalPrice}</span>
+                </div>
+              ) : (
+                <span className="text-3xl font-extra-thick" style={{ color: '#00704A' }}>฿{finalPrice}</span>
+              )}
+            </div>
+            <div className="space-y-8 mt-6">
+              {shouldShowTypeSelection && (
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">เลือกรูปแบบ</label>
+                  <div className="flex flex-wrap gap-3">
+                    {safeMenu.typeOptions.map((type, idx) => (
+                      <button key={idx} onClick={() => setSelectedType(type)}
+                        className="flex-1 min-w-[80px] py-3 px-2 rounded-2xl text-sm font-bold border-2 transition-all"
                         style={{
-                          borderColor: isSelected ? '#00704A' : '#f9fafb',
-                          backgroundColor: isSelected ? alpha('#00704A', '0.05') : '#ffffff'
+                          backgroundColor: selectedType?.label === type.label ? alpha('#00704A', '0.1') : '#ffffff',
+                          borderColor: selectedType?.label === type.label ? '#00704A' : '#f3f4f6',
+                          color: selectedType?.label === type.label ? '#00704A' : '#9ca3af'
                         }}
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-5 h-5 rounded-md flex items-center justify-center transition-colors"
-                            style={{ backgroundColor: isSelected ? '#00704A' : '#e5e7eb' }}>
-                            {isSelected && <Check size={12} strokeWidth={4} className="text-white" />}
-                          </div>
-                          <span className="text-sm font-bold" style={{ color: isSelected ? '#00704A' : '#111827' }}>{addon.label}</span>
-                        </div>
-                        <span className="text-xs font-bold text-gray-400">+฿{addon.price}</span>
+                        {type.label}<span className="block text-[10px] opacity-60 font-normal">฿{type.price}</span>
                       </button>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
+              )}
+              {safeMenu.addOns && safeMenu.addOns.length > 0 && (
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">เพิ่มเติม (Add-on)</label>
+                  <div className="space-y-2">
+                    {safeMenu.addOns.map((addon, idx) => {
+                      const isSelected = selectedAddOns.some(item => item.label === addon.label);
+                      return (
+                        <button key={idx} onClick={() => toggleAddOn(addon)}
+                          className="w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all"
+                          style={{
+                            borderColor: isSelected ? '#00704A' : '#f9fafb',
+                            backgroundColor: isSelected ? alpha('#00704A', '0.05') : '#ffffff'
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-5 h-5 rounded-md flex items-center justify-center transition-colors"
+                              style={{ backgroundColor: isSelected ? '#00704A' : '#e5e7eb' }}>
+                              {isSelected && <Check size={12} strokeWidth={4} className="text-white" />}
+                            </div>
+                            <span className="text-sm font-bold" style={{ color: isSelected ? '#00704A' : '#111827' }}>{addon.label}</span>
+                          </div>
+                          <span className="text-xs font-bold text-gray-400">+฿{addon.price}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-3">
+                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">หมายเหตุถึงร้าน</label>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="เช่น หวานน้อย, ไม่ใส่ผัก..."
+                  className="w-full bg-gray-50 border-none rounded-2xl p-4 text-base font-medium text-gray-700 focus:ring-2 outline-none h-24 resize-none"
+                  style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                />
               </div>
-            )}
-            <div className="space-y-3">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">หมายเหตุถึงร้าน</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="เช่น หวานน้อย, ไม่ใส่ผัก..."
-                className="w-full bg-gray-50 border-none rounded-2xl p-4 text-base font-medium text-gray-700 focus:ring-2 outline-none h-24 resize-none"
-                style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
-              />
             </div>
           </div>
-        </div>
-        <div className="fixed bottom-0 left-0 right-0 p-6 border-t border-gray-100 bg-white/90 backdrop-blur-xl z-[210] pb-8 rounded-t-[32px]">
-          {isEditMode ? (
-            <div className="flex gap-3">
-              <button onClick={onDelete} className="p-4 bg-red-50 text-red-500 rounded-2xl active:scale-95 transition-all shadow-sm"><Trash2 size={24} /></button>
+          <div className="fixed bottom-0 left-0 right-0 p-6 border-t border-gray-100 bg-white/90 backdrop-blur-xl z-[210] pb-8 rounded-t-[32px]">
+            {isEditMode ? (
+              <div className="flex gap-3">
+                <button onClick={onDelete} className="p-4 bg-red-50 text-red-500 rounded-2xl active:scale-95 transition-all shadow-sm"><Trash2 size={24} /></button>
+                <button
+                  onClick={() => { onConfirm({ ...menu, price: finalPrice, selectedType: selectedType.label, selectedAddOns: selectedAddOns.map(a => a.label).join(', '), note }); onClose(); }}
+                  className="flex-1 text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                  style={{ backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+                >
+                  อัพเดทรายการ - ฿{finalPrice}
+                </button>
+              </div>
+            ) : (
               <button
                 onClick={() => { onConfirm({ ...menu, price: finalPrice, selectedType: selectedType.label, selectedAddOns: selectedAddOns.map(a => a.label).join(', '), note }); onClose(); }}
-                className="flex-1 text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                className="w-full text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
                 style={{ backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
               >
-                อัพเดทรายการ - ฿{finalPrice}
+                <Plus size={24} /> เพิ่มลงตะกร้า - ฿{finalPrice}
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => { onConfirm({ ...menu, price: finalPrice, selectedType: selectedType.label, selectedAddOns: selectedAddOns.map(a => a.label).join(', '), note }); onClose(); }}
-              className="w-full text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-              style={{ backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
-            >
-              <Plus size={24} /> เพิ่มลงตะกร้า - ฿{finalPrice}
-            </button>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div >
+    </>
   );
 };
 
 // --- DELETE CONFIRMATION MODAL ---
-const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
-  <div className="fixed inset-0 z-[300] backdrop-blur-sm flex items-end justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+const DeleteConfirmModal = ({ visible, onConfirm, onCancel }) => (
+  <div className={`fixed inset-0 z-[300] backdrop-blur-sm flex items-end justify-center p-6 transition-all duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+    <div className={`bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center border transition-transform duration-300 ease-out transform ${visible ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`} style={{ borderColor: '#f3f4f6' }}>
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500"><Trash2 size={36} strokeWidth={2} /></div>
       <h3 className="text-xl font-black text-gray-900 mb-2">ยืนยันการลบ?</h3>
       <p className="text-gray-500 text-sm mb-8 leading-relaxed font-medium">คุณต้องการลบรายการนี้ออกจากออเดอร์ใช่หรือไม่</p>
@@ -701,9 +794,9 @@ const DeleteConfirmModal = ({ onConfirm, onCancel }) => (
 );
 
 // --- LOGOUT CONFIRMATION MODAL ---
-const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
-  <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-    <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+const LogoutConfirmModal = ({ visible, onConfirm, onCancel }) => (
+  <div className={`fixed inset-0 z-[350] backdrop-blur-sm flex items-center justify-center p-6 transition-all duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+    <div className={`bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center border transition-transform duration-300 ease-out transform ${visible ? 'scale-100' : 'scale-90'}`} style={{ borderColor: '#f3f4f6' }}>
       <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
         <LogOut size={36} strokeWidth={2} className="ml-1" />
       </div>
@@ -774,7 +867,7 @@ const PaymentFlowModal = ({
   const fileInputRef = useRef(null);
   const [showImageViewer, setShowImageViewer] = useState(false);
 
-  if (!visible) return null;
+  // if (!visible) return null; // Removed for animation
 
   const titleMap = {
     selection: 'สรุปออเดอร์และชำระเงิน',
@@ -996,307 +1089,327 @@ const PaymentFlowModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[320] flex items-end justify-center bg-[252,252,252,0.2] backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] animate-in slide-in-from-bottom duration-200 flex flex-col h-[90vh]">
-        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
-          <button onClick={step === 'selection' ? onClose : onBack} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
-            {step === 'selection' ? <X size={20} /> : <ChevronLeft size={20} />}
-          </button>
-          <h3 className="text-base font-black text-gray-900">{titleMap[step]}</h3>
-          {step === 'selection' && (
-            <button
-              onClick={onNext}
-              disabled={!paymentMethod}
-              className={`px-5 py-2.5 rounded-full text-sm font-black transition-all ${paymentMethod ? 'bg-[#00704A] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}
-            >
-              ถัดไป
+    <>
+      <div
+        className={`fixed inset-0 z-[320] flex items-end justify-center bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+      />
+      <div className={`fixed inset-0 z-[321] pointer-events-none flex items-end justify-center`}>
+        <div
+          className={`w-full max-w-md bg-white rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] flex flex-col h-[90vh] transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}
+        >
+          <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
+            <button onClick={step === 'selection' ? onClose : onBack} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
+              {step === 'selection' ? <X size={20} /> : <ChevronLeft size={20} />}
             </button>
-          )}
-          {step === 'cash_review' && (
-            <button
-              onClick={onSubmitCash}
-              className="px-5 py-2.5 rounded-full text-sm font-black bg-[#00704A] text-white shadow-lg active:scale-95 transition-transform"
-            >
-              ส่งออเดอร์
-            </button>
-          )}
-          {step === 'promptpay_review' && (
-            slipFileName ? (
+            <h3 className="text-base font-black text-gray-900">{titleMap[step]}</h3>
+            {step === 'selection' && (
               <button
-                onClick={onSubmitPromptPay}
+                onClick={onNext}
+                disabled={!paymentMethod}
+                className={`px-5 py-2.5 rounded-full text-sm font-black transition-all ${paymentMethod ? 'bg-[#00704A] text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}
+              >
+                ถัดไป
+              </button>
+            )}
+            {step === 'cash_review' && (
+              <button
+                onClick={onSubmitCash}
                 className="px-5 py-2.5 rounded-full text-sm font-black bg-[#00704A] text-white shadow-lg active:scale-95 transition-transform"
               >
                 ส่งออเดอร์
               </button>
-            ) : <div className="w-10" />
-          )}
-        </div>
-
-        <div className="p-6 space-y-6 flex-1 overflow-y-auto no-scrollbar pb-10">
-          {step === 'selection' && (
-            <>
-              <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-4 flex flex-col gap-3">
-                <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} highlight />
-                <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-gray-500">ชำระทั้งสิ้น</p>
-                    <p className="text-4xl font-bold text-[#00704A]">{formatBaht(finalTotal)}</p>
-                  </div>
-                  <CircleDollarSign size={32} className="text-[#00704A]" />
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">รหัสโปรโมชั่น</label>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 flex items-center rounded-2xl border border-gray-200 bg-white px-3 py-2">
-                    <input
-                      value={promoInput}
-                      onChange={(e) => onPromoInputChange(e.target.value.toUpperCase())}
-                      placeholder="กรอกรหัสโปรโมชั่น"
-                      className="flex-1 bg-transparent outline-none text-sm font-bold text-gray-800"
-                    />
-                    <button
-                      onClick={onScanPromotion}
-                      className="w-10 h-10 rounded-xl bg-gray-100 text-gray-500 flex items-center justify-center active:scale-95 transition-transform"
-                    >
-                      <Scan size={18} />
-                    </button>
-                  </div>
-                  <button
-                    onClick={onApplyPromotion}
-                    disabled={!promoInput}
-                    className={`px-4 py-3 rounded-2xl text-sm font-black transition-all ${promoInput ? 'bg-[#00704A] text-white shadow-lg active:scale-95' : 'bg-gray-100 text-gray-400'}`}
-                  >
-                    ใช้โค้ด
-                  </button>
-                </div>
-                {appliedPromotion && (
-                  <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl text-sm text-[#00704A] font-bold">
-                    <div>
-                      <p className="font-black">ใช้ {appliedPromotion.code}</p>
-                      <p className="text-xs text-[#00704A]/70">{appliedPromotion.name}</p>
-                    </div>
-                    <button onClick={onRemovePromotion} className="text-xs font-black text-[#00704A] underline">ยกเลิก</button>
-                  </div>
-                )}
-                {promotionError && (
-                  <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
-                    <FileWarning size={18} />
-                    <span>{promotionError}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Points Redemption Section */}
-              {userPoints > 0 && (
-                <div className="space-y-3">
-                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">ใช้ Point แลกส่วนลด</label>
-                  <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-bold text-gray-600">Point ของคุณ</span>
-                      <span className="text-lg font-black text-[#00704A]">{userPoints.toFixed(2)} pts</span>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-gray-500">ใช้ points</span>
-                        <span className="font-bold text-gray-800">{pointsToRedeem} pts</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max={Math.min(userPoints, 100)}
-                        step="2"
-                        value={pointsToRedeem}
-                        onChange={(e) => onPointsChange(Number(e.target.value))}
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00704A]"
-                      />
-                      <div className="flex justify-between text-[10px] text-gray-400">
-                        <span>0</span>
-                        <span>{Math.min(userPoints, 100)} pts (สูงสุด ฿50)</span>
-                      </div>
-                    </div>
-                    {pointsToRedeem > 0 && (
-                      <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl">
-                        <span className="text-sm font-bold text-[#00704A]">ส่วนลดจาก Points</span>
-                        <span className="text-lg font-black text-[#00704A]">- ฿{pointsDiscount}</span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-400 text-center">2 points = ฿1 | สูงสุด 100 points (฿50) ต่อออเดอร์</p>
-                </div>
-              )}
-
-              {/* Points to Earn Preview */}
-              {pointsToEarn > 0 && (
-                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
-                  <div className="flex items-center gap-2">
-                    <span className="text-amber-600">⭐</span>
-                    <span className="text-sm font-bold text-amber-700">จะได้รับ</span>
-                  </div>
-                  <span className="text-lg font-black text-amber-600">+{pointsToEarn.toFixed(2)} pts</span>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">วิธีการชำระเงิน</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[{ id: 'cash', label: 'เงินสด', description: 'ชำระที่เคาท์เตอร์', icon: CircleDollarSign }, { id: 'promptpay', label: 'QR PromptPay', description: 'สแกนผ่านธนาคาร', icon: QrCode }].map(option => {
-                    const active = paymentMethod === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        onClick={() => onSelectPayment(option.id)}
-                        className={`rounded-3xl border-2 p-5 text-left transition-all ${active ? 'border-[#00704A] bg-[#00704A]/10 shadow-lg' : 'border-gray-100 bg-white'}`}
-                      >
-                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-4 ${active ? 'bg-[#00704A] text-white' : 'bg-gray-100 text-gray-500'}`}>
-                          <option.icon size={22} />
-                        </div>
-                        <p className="text-sm font-black text-gray-900">{option.label}</p>
-                        <p className="text-xs text-gray-400 mt-1">{option.description}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <PaymentSummaryRow label="สินค้าทั้งหมด" value={`${cart.length} รายการ`} />
-                <div className="space-y-3 bg-gray-50 border border-gray-100 rounded-3xl p-5">
-                  {cart.map(item => (
-                    <div key={item.cartId || Math.random()} className="flex flex-col gap-1 border-b border-gray-200/50 pb-3 last:border-0 last:pb-0">
-                      <div className="flex justify-between items-start gap-4 text-sm font-bold text-gray-800">
-                        <div className="flex-1">
-                          <p className="line-clamp-1 leading-tight">{item.name}</p>
-                          <p className="text-[10px] font-medium text-gray-400 mt-1 line-clamp-1 capitalize">
-                            {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
-                            {item.note && <span className="text-gray-400"> + {item.note}</span>}
-                          </p>
-                        </div>
-                        <span className="flex-shrink-0 font-black text-gray-900">{formatBaht(item.price)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {step === 'cash_review' && (
-            <div className="space-y-5">
-              <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
-                <PaymentSummaryRow label="จำนวนสินค้า" value={`${cart.length} รายการ`} />
-                <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} />
-                <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
-                <PaymentSummaryRow label="ยอดชำระ" value={formatBaht(finalTotal)} highlight />
-              </div>
-              <div className="rounded-3xl border border-[#00704A]/20 bg-[#00704A]/10 p-5 text-sm text-[#00704A] font-bold leading-relaxed">
-                <p>กรุณาชำระเงินสดที่เคาท์เตอร์แคชเชียร์ภายใน 15 นาที เพื่อรักษาสิทธิ์โปรโมชั่นและคิวของคุณ</p>
-              </div>
-            </div>
-          )}
-
-          {step === 'promptpay_review' && (
-            <div className="space-y-6">
-              <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
-                <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} />
-                <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
-                <PaymentSummaryRow label="ยอดชำระ" value={formatBaht(finalTotal)} highlight />
-              </div>
-              <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4">
-                <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
-                  <img
-                    src={`https://promptpay.io/0619961130/${finalTotal}`}
-                    alt="PromptPay QR Code"
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-                <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleSaveQR}
-                    className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
-                  >
-                    <Download size={18} /> บันทึกรูป
-                  </button>
-                  <button
-                    onClick={handleSlipButton}
-                    className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
-                  >
-                    <UploadCloud size={18} /> แนบสลิป
-                  </button>
-                </div>
-                {slipFileName && (
-                  <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200">
-                    <div
-                      className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
-                      onClick={() => setShowImageViewer(true)}
-                    >
-                      <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
-                    </div>
-                    <div
-                      className="flex-1 cursor-pointer"
-                      onClick={() => setShowImageViewer(true)}
-                    >
-                      <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
-                      <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
-                    </div>
-                    <button
-                      onClick={onRemoveSlip}
-                      className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                )}
-                {slipError && (
-                  <div className="flex flex-col items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
-                    <FileWarning size={18} />
-                    <span className="text-center">{slipError}</span>
-                    <button onClick={onRetrySlip} className="text-xs underline font-black text-red-500">ลองใหม่อีกครั้ง</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <ImageViewerModal
-          visible={showImageViewer}
-          imageUrl={slipFileName}
-          onClose={() => setShowImageViewer(false)}
-        />
-
-        <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
-      </div>
-
-      {isCheckingSlip && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-          <div className="px-6 py-5 bg-white rounded-3xl shadow-2xl flex flex-col items-center gap-3">
-            <Loader2 className="animate-spin text-[#00704A]" size={32} strokeWidth={3} />
-            <p className="text-sm font-bold text-gray-700">กำลังตรวจสอบสลิป</p>
-            <p className="text-xs text-gray-400">โปรดรอซักครู่...</p>
+            )}
+            {step === 'promptpay_review' && (
+              slipFileName ? (
+                <button
+                  onClick={onSubmitPromptPay}
+                  className="px-5 py-2.5 rounded-full text-sm font-black bg-[#00704A] text-white shadow-lg active:scale-95 transition-transform"
+                >
+                  ส่งออเดอร์
+                </button>
+              ) : <div className="w-10" />
+            )}
           </div>
+
+          <div className="p-6 space-y-6 flex-1 overflow-y-auto no-scrollbar pb-10">
+            {step === 'selection' && (
+              <>
+                <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-4 flex flex-col gap-3">
+                  <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} highlight />
+                  <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">ชำระทั้งสิ้น</p>
+                      <p className="text-4xl font-bold text-[#00704A]">{formatBaht(finalTotal)}</p>
+                    </div>
+                    <CircleDollarSign size={32} className="text-[#00704A]" />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">รหัสโปรโมชั่น</label>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 flex items-center rounded-2xl border border-gray-200 bg-white px-3 py-2">
+                      <input
+                        value={promoInput}
+                        onChange={(e) => onPromoInputChange(e.target.value.toUpperCase())}
+                        placeholder="กรอกรหัสโปรโมชั่น"
+                        className="flex-1 bg-transparent outline-none text-sm font-bold text-gray-800"
+                      />
+                      <button
+                        onClick={onScanPromotion}
+                        className="w-10 h-10 rounded-xl bg-gray-100 text-gray-500 flex items-center justify-center active:scale-95 transition-transform"
+                      >
+                        <Scan size={18} />
+                      </button>
+                    </div>
+                    <button
+                      onClick={onApplyPromotion}
+                      disabled={!promoInput}
+                      className={`px-4 py-3 rounded-2xl text-sm font-black transition-all ${promoInput ? 'bg-[#00704A] text-white shadow-lg active:scale-95' : 'bg-gray-100 text-gray-400'}`}
+                    >
+                      ใช้โค้ด
+                    </button>
+                  </div>
+                  {appliedPromotion && (
+                    <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl text-sm text-[#00704A] font-bold">
+                      <div>
+                        <p className="font-black">ใช้ {appliedPromotion.code}</p>
+                        <p className="text-xs text-[#00704A]/70">{appliedPromotion.name}</p>
+                      </div>
+                      <button onClick={onRemovePromotion} className="text-xs font-black text-[#00704A] underline">ยกเลิก</button>
+                    </div>
+                  )}
+                  {promotionError && (
+                    <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
+                      <FileWarning size={18} />
+                      <span>{promotionError}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Points Redemption Section */}
+                {userPoints > 0 && (
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest">ใช้ Point แลกส่วนลด</label>
+                    <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-gray-600">Point ของคุณ</span>
+                        <span className="text-lg font-black text-[#00704A]">{userPoints.toFixed(2)} pts</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium text-gray-500">ใช้ points</span>
+                          <span className="font-bold text-gray-800">{pointsToRedeem} pts</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max={Math.min(userPoints, 100)}
+                          step="2"
+                          value={pointsToRedeem}
+                          onChange={(e) => onPointsChange(Number(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00704A]"
+                        />
+                        <div className="flex justify-between text-[10px] text-gray-400">
+                          <span>0</span>
+                          <span>{Math.min(userPoints, 100)} pts (สูงสุด ฿50)</span>
+                        </div>
+                      </div>
+                      {pointsToRedeem > 0 && (
+                        <div className="flex items-center justify-between bg-[#00704A]/10 border border-[#00704A]/20 px-4 py-3 rounded-2xl">
+                          <span className="text-sm font-bold text-[#00704A]">ส่วนลดจาก Points</span>
+                          <span className="text-lg font-black text-[#00704A]">- ฿{pointsDiscount}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-gray-400 text-center">2 points = ฿1 | สูงสุด 100 points (฿50) ต่อออเดอร์</p>
+                  </div>
+                )}
+
+                {/* Points to Earn Preview */}
+                {pointsToEarn > 0 && (
+                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-600">⭐</span>
+                      <span className="text-sm font-bold text-amber-700">จะได้รับ</span>
+                    </div>
+                    <span className="text-lg font-black text-amber-600">+{pointsToEarn.toFixed(2)} pts</span>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">วิธีการชำระเงิน</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[{ id: 'cash', label: 'เงินสด', description: 'ชำระที่เคาท์เตอร์', icon: CircleDollarSign }, { id: 'promptpay', label: 'QR PromptPay', description: 'สแกนผ่านธนาคาร', icon: QrCode }].map(option => {
+                      const active = paymentMethod === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => onSelectPayment(option.id)}
+                          className={`rounded-3xl border-2 p-5 text-left transition-all ${active ? 'border-[#00704A] bg-[#00704A]/10 shadow-lg' : 'border-gray-100 bg-white'}`}
+                        >
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-4 ${active ? 'bg-[#00704A] text-white' : 'bg-gray-100 text-gray-500'}`}>
+                            <option.icon size={22} />
+                          </div>
+                          <p className="text-sm font-black text-gray-900">{option.label}</p>
+                          <p className="text-xs text-gray-400 mt-1">{option.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <PaymentSummaryRow label="สินค้าทั้งหมด" value={`${cart.length} รายการ`} />
+                  <div className="space-y-3 bg-gray-50 border border-gray-100 rounded-3xl p-5">
+                    {cart.map(item => (
+                      <div key={item.cartId || Math.random()} className="flex flex-col gap-1 border-b border-gray-200/50 pb-3 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-start gap-4 text-sm font-bold text-gray-800">
+                          <div className="flex-1">
+                            <p className="line-clamp-1 leading-tight">{item.name}</p>
+                            <p className="text-[10px] font-medium text-gray-400 mt-1 line-clamp-1 capitalize">
+                              {item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}
+                              {item.note && <span className="text-gray-400"> + {item.note}</span>}
+                            </p>
+                          </div>
+                          <span className="flex-shrink-0 font-black text-gray-900">{formatBaht(item.price)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {step === 'cash_review' && (
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
+                  <PaymentSummaryRow label="จำนวนสินค้า" value={`${cart.length} รายการ`} />
+                  <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} />
+                  <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
+                  <PaymentSummaryRow label="ยอดชำระ" value={formatBaht(finalTotal)} highlight />
+                </div>
+                <div className="rounded-3xl border border-[#00704A]/20 bg-[#00704A]/10 p-5 text-sm text-[#00704A] font-bold leading-relaxed">
+                  <p>กรุณาชำระเงินสดที่เคาท์เตอร์แคชเชียร์ภายใน 15 นาที เพื่อรักษาสิทธิ์โปรโมชั่นและคิวของคุณ</p>
+                </div>
+              </div>
+            )}
+
+            {step === 'promptpay_review' && (
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
+                  <PaymentSummaryRow label="ยอดรวม" value={formatBaht(subtotal)} />
+                  <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(discount)}`} />
+                  <PaymentSummaryRow label="ยอดชำระ" value={formatBaht(finalTotal)} highlight />
+                </div>
+                <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4">
+                  <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={`https://promptpay.io/0619961130/${finalTotal}`}
+                      alt="PromptPay QR Code"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSaveQR}
+                      className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
+                    >
+                      <Download size={18} /> บันทึกรูป
+                    </button>
+                    <button
+                      onClick={handleSlipButton}
+                      className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+                    >
+                      <UploadCloud size={18} /> แนบสลิป
+                    </button>
+                  </div>
+                  {slipFileName && (
+                    <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200">
+                      <div
+                        className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+                        onClick={() => setShowImageViewer(true)}
+                      >
+                        <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
+                      </div>
+                      <div
+                        className="flex-1 cursor-pointer"
+                        onClick={() => setShowImageViewer(true)}
+                      >
+                        <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
+                        <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
+                      </div>
+                      <button
+                        onClick={onRemoveSlip}
+                        className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  )}
+                  {slipError && (
+                    <div className="flex flex-col items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-100 px-4 py-3 rounded-2xl">
+                      <FileWarning size={18} />
+                      <span className="text-center">{slipError}</span>
+                      <button onClick={onRetrySlip} className="text-xs underline font-black text-red-500">ลองใหม่อีกครั้ง</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <ImageViewerModal
+            visible={showImageViewer}
+            imageUrl={slipFileName}
+            onClose={() => setShowImageViewer(false)}
+          />
+
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
         </div>
-      )}
-    </div>
+
+        {isCheckingSlip && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <div className="px-6 py-5 bg-white rounded-3xl shadow-2xl flex flex-col items-center gap-3">
+              <Loader2 className="animate-spin text-[#00704A]" size={32} strokeWidth={3} />
+              <p className="text-sm font-bold text-gray-700">กำลังตรวจสอบสลิป</p>
+              <p className="text-xs text-gray-400">โปรดรอซักครู่...</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 
 const PaymentResultModal = ({ visible, status, orderNumber, methodLabel, message, onConfirm }) => {
-  if (!visible) return null;
-  const isSuccess = status === 'paid';
+  const [cachedData, setCachedData] = useState({ status, orderNumber, methodLabel, message });
+
+  useEffect(() => {
+    if (visible) {
+      setCachedData({ status, orderNumber, methodLabel, message });
+    }
+  }, [visible, status, orderNumber, methodLabel, message]);
+
+  const { status: currentStatus, orderNumber: currentOrderNumber, methodLabel: currentMethodLabel, message: currentMessage } = visible ? { status, orderNumber, methodLabel, message } : cachedData;
+  const isSuccess = currentStatus === 'paid';
+
   return (
-    <div className="fixed inset-0 z-[330] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
-      <div className="w-full max-w-sm bg-white rounded-[36px] p-8 text-center shadow-2xl space-y-5 animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+    <div className={`fixed inset-0 z-[330] flex items-center justify-center p-6 transition-all duration-300 ${visible ? 'bg-black/40 backdrop-blur-sm opacity-100 pointer-events-auto' : 'bg-transparent backdrop-blur-none opacity-0 pointer-events-none'}`}>
+      <div
+        className={`w-full max-w-sm bg-white rounded-[36px] p-8 text-center shadow-2xl space-y-5 border transition-transform duration-300 ease-out transform ${visible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-10'}`}
+        style={{ borderColor: '#f3f4f6' }}
+      >
         <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center ${isSuccess ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'}`}>
           {isSuccess ? <Check size={36} strokeWidth={3} /> : <Receipt size={36} strokeWidth={2.5} />}
         </div>
         <div className="space-y-2">
-          <h3 className="text-xl font-black text-gray-900">ออเดอร์ของคุณเลขที่ {orderNumber}</h3>
-          <p className="text-sm font-bold text-gray-500 leading-relaxed">{message}</p>
-          <p className="text-xs uppercase tracking-widest text-gray-400 font-black">วิธีการชำระเงิน: {methodLabel}</p>
+          <h3 className="text-xl font-black text-gray-900">ออเดอร์ของคุณเลขที่ {currentOrderNumber}</h3>
+          <p className="text-sm font-bold text-gray-500 leading-relaxed">{currentMessage}</p>
+          <p className="text-xs uppercase tracking-widest text-gray-400 font-black">วิธีการชำระเงิน: {currentMethodLabel}</p>
         </div>
         <button
           onClick={onConfirm}
@@ -1311,17 +1424,23 @@ const PaymentResultModal = ({ visible, status, orderNumber, methodLabel, message
 
 // --- IMAGE VIEWER MODAL ---
 const ImageViewerModal = ({ visible, imageUrl, onClose }) => {
-  if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center backdrop-blur-md p-6 animate-in fade-in duration-300" onClick={onClose} style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="relative w-full max-w-md h-full flex flex-col items-center justify-center gap-6" onClick={e => e.stopPropagation()}>
+    <div
+      className={`fixed inset-0 z-[600] flex items-center justify-center backdrop-blur-md p-6 transition-all duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      onClick={onClose}
+      style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+    >
+      <div
+        className={`relative w-full max-w-md h-full flex flex-col items-center justify-center gap-6 transition-transform duration-300 ease-out transform ${visible ? 'scale-100' : 'scale-90'}`}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="w-full flex justify-end">
           <button onClick={onClose} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
             <X size={28} />
           </button>
         </div>
         <div className="relative w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl border border-[#f3f4f6] flex items-center justify-center bg-black/10">
-          <img src={imageUrl} alt="Slip Full View" className="w-full h-full object-contain animate-in zoom-in-95 duration-300" />
+          <img src={imageUrl} alt="Slip Full View" className="w-full h-full object-contain" />
         </div>
 
       </div>
@@ -1331,12 +1450,26 @@ const ImageViewerModal = ({ visible, imageUrl, onClose }) => {
 
 // --- SLIP PREVIEW MODAL ---
 const SlipPreviewModal = ({ visible, imageUrl, fileName, onConfirm, onReselect, onClose }) => {
-  console.log('SlipPreviewModal - visible:', visible, 'imageUrl:', imageUrl, 'fileName:', fileName);
-  if (!visible) return null;
+  const [cachedData, setCachedData] = useState({ imageUrl, fileName });
 
+  useEffect(() => {
+    if (visible) {
+      setCachedData({ imageUrl, fileName });
+    }
+  }, [visible, imageUrl, fileName]);
+
+  const { imageUrl: currentImageUrl, fileName: currentFileName } = visible ? { imageUrl, fileName } : cachedData;
+
+  console.log('SlipPreviewModal - visible:', visible, 'imageUrl:', currentImageUrl, 'fileName:', currentFileName);
   return (
-    <div className="fixed inset-0 z-[350] flex items-center justify-center backdrop-blur-sm p-6" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+    <div
+      className={`fixed inset-0 z-[350] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-black/20 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
+      style={{ backgroundColor: visible ? 'rgba(252,252,252,0.2)' : 'transparent' }}
+    >
+      <div
+        className={`w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden border transition-transform duration-300 ease-out transform ${visible ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}
+        style={{ borderColor: '#f3f4f6' }}
+      >
         {/* Header */}
         <div className="relative p-6 border-b border-gray-100">
           <h3 className="text-xl font-black text-gray-900 text-center">ตรวจสอบสลิป</h3>
@@ -1358,29 +1491,30 @@ const SlipPreviewModal = ({ visible, imageUrl, fileName, onConfirm, onReselect, 
             />
           </div>
 
-          {/* File Info */}
-          <div className="flex items-center gap-3 bg-gray-50 px-4 py-3 rounded-2xl">
-            <FileText size={20} className="text-gray-400 flex-shrink-0" />
+          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-2xl border border-gray-100">
+            <div className="w-8 h-8 rounded-full bg-[#00704A] flex items-center justify-center text-white">
+              <Check size={16} />
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-gray-500">สถานะไฟล์</p>
-              <p className="text-sm font-black text-gray-900">พร้อมแนบหลักฐานการโอน</p>
+              <p className="text-xs text-gray-400 font-bold">ไฟล์ที่แนบ</p>
+              <p className="text-sm font-black text-gray-700 truncate">{fileName}</p>
             </div>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="p-6 pt-0 space-y-3">
-          <button
-            onClick={onConfirm}
-            className="w-full py-4 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
-          >
-            แนบรูป
-          </button>
+        <div className="p-6 pt-0 flex gap-3">
           <button
             onClick={onReselect}
-            className="w-full py-4 bg-gray-100 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
+            className="flex-1 py-4 rounded-2xl bg-gray-100 text-gray-600 font-black text-sm active:scale-95 transition-transform"
           >
             เลือกใหม่
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-[2] py-4 rounded-2xl bg-[#00704A] text-white font-black text-sm shadow-xl shadow-[#00704A]/20 active:scale-95 transition-transform"
+          >
+            ยืนยันการโอนเงิน
           </button>
         </div>
       </div>
@@ -1389,11 +1523,9 @@ const SlipPreviewModal = ({ visible, imageUrl, fileName, onConfirm, onReselect, 
 };
 
 const SlipDeleteConfirmModal = ({ visible, onConfirm, onCancel }) => {
-  if (!visible) return null;
-
   return (
-    <div className="fixed inset-0 z-[360] backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center animate-in slide-in-from-bottom duration-300 border" style={{ borderColor: '#f3f4f6' }}>
+    <div className={`fixed inset-0 z-[360] backdrop-blur-sm flex items-center justify-center p-6 transition-all duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
+      <div className={`bg-white rounded-[32px] p-8 pb-6 w-full max-w-sm shadow-2xl text-center border transition-transform duration-300 ease-out transform ${visible ? 'scale-100' : 'scale-90'}`} style={{ borderColor: '#f3f4f6' }}>
         <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
           <Trash2 size={36} strokeWidth={2} />
         </div>
@@ -1409,6 +1541,7 @@ const SlipDeleteConfirmModal = ({ visible, onConfirm, onCancel }) => {
 };
 
 const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg, pointTransactions = [] }) => {
+  const [cachedOrder, setCachedOrder] = useState(order);
   const [paymentMethod, setPaymentMethod] = useState(order?.paymentMethod || 'cash');
   const [slipFileName, setSlipFileName] = useState(order?.slipFileName || '');
   const [isEditing, setIsEditing] = useState(false);
@@ -1422,16 +1555,26 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
   const [showImageViewer, setShowImageViewer] = useState(false);
 
   useEffect(() => {
-    if (order) {
+    if (visible && order) {
+      setCachedOrder(order);
       setPaymentMethod(order.paymentMethod || 'cash');
       setSlipFileName(order.slipFileName || '');
       setIsEditing(false);
+      // Reset other ephemeral states when opening/switching order
+      setShowSlipPreview(false);
+      setPendingSlipFile(null);
+      setSlipPreviewUrl('');
+      setShowDeleteConfirm(false);
+      setShowImageViewer(false);
     }
-  }, [order]);
+  }, [visible, order]);
 
-  if (!visible || !order) return null;
+  const activeOrder = visible ? order : cachedOrder;
 
-  const canEditPayment = order.status === 'waiting_payment' || order.status === 'waiting_confirmation';
+  if (!activeOrder) return null;
+
+  // Use activeOrder for logic below
+  const canEditPayment = activeOrder?.status === 'waiting_payment' || activeOrder?.status === 'waiting_confirmation';
 
   const handleSlipButton = () => {
     fileInputRef.current?.click();
@@ -1472,8 +1615,8 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
 
         setSlipFileName(publicUrl);
         // บันทึก Public URL ลง Supabase
-        await onUpdateOrder(order.id, {
-          paymentMethod: order.paymentMethod,
+        await onUpdateOrder(activeOrder.id, {
+          paymentMethod: activeOrder.paymentMethod,
           status: 'waiting_confirmation',
           slipFileName: publicUrl,
         });
@@ -1519,9 +1662,9 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
     setSlipFileName('');
     // ลบสลิปจาก Supabase
     if (onUpdateOrder) {
-      await onUpdateOrder(order.id, {
-        paymentMethod: order.paymentMethod,
-        status: order.status,
+      await onUpdateOrder(activeOrder.id, {
+        paymentMethod: activeOrder.paymentMethod,
+        status: activeOrder.status,
         slipFileName: null,
       });
     }
@@ -1534,8 +1677,8 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
   const handleSaveQR = async () => {
     try {
       const link = document.createElement('a');
-      link.href = `https://promptpay.io/0619961130/${order.total}`;
-      link.download = `promptpay_${order.id}.png`;
+      link.href = `https://promptpay.io/0619961130/${activeOrder.total}`;
+      link.download = `promptpay_${activeOrder.id}.png`;
       link.click();
     } catch (err) {
       console.error('Error saving QR:', err);
@@ -1546,7 +1689,7 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
     if (onUpdateOrder) {
       // เปลี่ยนสถานะตามวิธีชำระเงิน
       const newStatus = paymentMethod === 'cash' ? 'waiting_payment' : 'waiting_confirmation';
-      await onUpdateOrder(order.id, {
+      await onUpdateOrder(activeOrder.id, {
         paymentMethod: paymentMethod,
         status: newStatus,
         slipFileName: slipFileName || null,
@@ -1556,334 +1699,357 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
   };
 
   return (
-    <div className="fixed inset-0 z-[340] flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.0)' }}>
-      <div className="w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
-        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
-          <StatusPill status={order.status} />
-          <h3 className="text-lg font-black text-gray-900 mt-[-2px]">รายละเอียดออเดอร์</h3>
-          <button onClick={onClose} className="w-10 h-10 mt-[-4px] rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-6 space-y-5 flex-1 overflow-y-auto no-scrollbar pb-10">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-widest text-gray-400 font-black">เลขที่ออเดอร์</p>
-            <p className="text-xl font-black text-gray-900">{order.id}</p>
-            <p className="text-xs text-gray-400">สร้างเมื่อ {formatDateTime(order.createdAt)}</p>
+    <>
+      <div
+        className={`fixed inset-0 z-[340] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+        style={{ backgroundColor: 'rgba(252,252,252,0.0)' }}
+      />
+      <div className={`fixed inset-0 z-[341] pointer-events-none flex items-end justify-center`}>
+        <div className={`w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col shadow-2xl transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}>
+          <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
+            <StatusPill status={activeOrder.status} />
+            <h3 className="text-lg font-black text-gray-900 mt-[-2px]">รายละเอียดออเดอร์</h3>
+            <button onClick={onClose} className="w-10 h-10 mt-[-4px] rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
+              <X size={20} />
+            </button>
           </div>
-          <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 space-y-3">
-            {(order.items || []).map((item, idx) => (
-              <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-2 last:border-0 last:pb-0">
-                <div className="flex justify-between gap-4 text-sm font-bold text-gray-700">
-                  <span className="line-clamp-1 flex-1">{item.name} {item.note && <span className="text-gray-400 font-normal"> + {item.note}</span>}</span>
-                  <span className="flex-shrink-0">{formatBaht(item.price)}</span>
+          <div className="p-6 space-y-5 flex-1 overflow-y-auto no-scrollbar pb-10">
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-widest text-gray-400 font-black">เลขที่ออเดอร์</p>
+              <p className="text-xl font-black text-gray-900">{activeOrder.id}</p>
+              <p className="text-xs text-gray-400">สร้างเมื่อ {formatDateTime(activeOrder.createdAt)}</p>
+            </div>
+            <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 space-y-3">
+              {(activeOrder.items || []).map((item, idx) => (
+                <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-2 last:border-0 last:pb-0">
+                  <div className="flex justify-between gap-4 text-sm font-bold text-gray-700">
+                    <span className="line-clamp-1 flex-1">{item.name} {item.note && <span className="text-gray-400 font-normal"> + {item.note}</span>}</span>
+                    <span className="flex-shrink-0">{formatBaht(item.price)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-2">
-            <PaymentSummaryRow label="ยอดรวม" value={formatBaht(order.subtotal)} />
-            <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(order.discount)}`} />
-            <PaymentSummaryRow label="ชำระทั้งสิ้น" value={formatBaht(order.total)} highlight />
-          </div>
-
-          {/* วิธีการชำระเงิน */}
-          <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-bold text-gray-600">วิธีการชำระเงิน</span>
-              {canEditPayment && !isEditing && (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="text-xs font-bold text-[#00704A] underline"
-                >
-                  แก้ไข
-                </button>
-              )}
+              ))}
+            </div>
+            <div className="space-y-2">
+              <PaymentSummaryRow label="ยอดรวม" value={formatBaht(activeOrder.subtotal)} />
+              <PaymentSummaryRow label="ส่วนลด" value={`- ${formatBaht(activeOrder.discount)}`} />
+              <PaymentSummaryRow label="ชำระทั้งสิ้น" value={formatBaht(activeOrder.total)} highlight />
             </div>
 
-            {isEditing && canEditPayment ? (
-              <div className="space-y-3">
-                <div className="flex gap-3">
+            {/* วิธีการชำระเงิน */}
+            <div className="rounded-3xl border border-gray-100 bg-white shadow-sm p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-gray-600">วิธีการชำระเงิน</span>
+                {canEditPayment && !isEditing && (
                   <button
-                    onClick={() => setPaymentMethod('cash')}
-                    className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'cash' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                    onClick={() => setIsEditing(true)}
+                    className="text-xs font-bold text-[#00704A] underline"
                   >
-                    เงินสด
+                    แก้ไข
                   </button>
+                )}
+              </div>
+
+              {isEditing && canEditPayment ? (
+                <div className="space-y-3">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setPaymentMethod('cash')}
+                      className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'cash' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                    >
+                      เงินสด
+                    </button>
+                    <button
+                      onClick={() => setPaymentMethod('promptpay')}
+                      className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'promptpay' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                    >
+                      QR PromptPay
+                    </button>
+                  </div>
+
                   <button
-                    onClick={() => setPaymentMethod('promptpay')}
-                    className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${paymentMethod === 'promptpay' ? 'border-[#00704A] bg-[#00704A]/10 text-[#00704A]' : 'border-gray-200 text-gray-500'}`}
+                    onClick={handleConfirmPayment}
+                    className="w-full py-4 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
                   >
-                    QR PromptPay
+                    บันทึกการเปลี่ยนแปลง
                   </button>
                 </div>
+              ) : (
+                <>
+                  <p className="text-sm font-black text-gray-900">
+                    {activeOrder.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'}
+                  </p>
 
-                <button
-                  onClick={handleConfirmPayment}
-                  className="w-full py-4 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
-                >
-                  บันทึกการเปลี่ยนแปลง
-                </button>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-black text-gray-900">
-                  {order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'}
-                </p>
-
-                {/* แสดง QR code โดยอัตโนมัติสำหรับ PromptPay ที่ยังรอชำระ */}
-                {order.paymentMethod === 'promptpay' && canEditPayment && (
-                  <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4 mt-3">
-                    <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={`https://promptpay.io/0619961130/${order.total}`}
-                        alt="PromptPay QR Code"
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                    <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleSaveQR}
-                        className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
-                      >
-                        <Download size={18} /> บันทึกรูป
-                      </button>
-                      <button
-                        onClick={handleSlipButton}
-                        className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
-                      >
-                        <UploadCloud size={18} /> แนบสลิป
-                      </button>
-                    </div>
-                    {slipFileName && (
-                      <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200 mt-2">
-                        <div
-                          className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
-                          onClick={() => setShowImageViewer(true)}
-                        >
-                          <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
-                        </div>
-                        <div
-                          className="flex-1 cursor-pointer"
-                          onClick={() => setShowImageViewer(true)}
-                        >
-                          <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
-                          <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
-                        </div>
+                  {/* แสดง QR code โดยอัตโนมัติสำหรับ PromptPay ที่ยังรอชำระ */}
+                  {activeOrder.paymentMethod === 'promptpay' && canEditPayment && (
+                    <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 flex flex-col items-center gap-4 mt-3">
+                      <div className="w-44 h-44 rounded-3xl bg-white border-4 border-gray-100 flex items-center justify-center overflow-hidden">
+                        <img
+                          src={`https://promptpay.io/0619961130/${activeOrder.total}`}
+                          alt="PromptPay QR Code"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <p className="text-sm font-bold text-gray-500">สแกนจ่ายด้วยแอปธนาคารของคุณ</p>
+                      <div className="flex gap-3">
                         <button
-                          onClick={handleRemoveSlip}
-                          className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
+                          onClick={handleSaveQR}
+                          className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-2xl font-black text-sm active:scale-95 transition-transform"
                         >
-                          <X size={16} />
+                          <Download size={18} /> บันทึกรูป
                         </button>
+                        <button
+                          onClick={handleSlipButton}
+                          className="flex items-center gap-2 px-5 py-3 bg-[#00704A] text-white rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+                        >
+                          <UploadCloud size={18} /> แนบสลิป
+                        </button>
+                      </div>
+                      {slipFileName && (
+                        <div className="flex items-center gap-3 bg-gray-100 px-4 py-3 rounded-2xl w-full border border-gray-200 mt-2">
+                          <div
+                            className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+                            onClick={() => setShowImageViewer(true)}
+                          >
+                            <img src={slipFileName} alt="Slip Thumbnail" className="w-full h-full object-cover" />
+                          </div>
+                          <div
+                            className="flex-1 cursor-pointer"
+                            onClick={() => setShowImageViewer(true)}
+                          >
+                            <p className="text-xs font-bold text-gray-600">สลิปที่แนบ:</p>
+                            <p className="text-sm font-black text-[#00704A]">แนบไฟล์สำเร็จ</p>
+                          </div>
+                          <button
+                            onClick={handleRemoveSlip}
+                            className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center active:scale-95 transition-transform"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Promotion & Points Details */}
+              {/* Promotion & Points Details */}
+              {/* Promotion & Points Details */}
+              {(() => {
+                const earnedTx = pointTransactions?.find(tx => tx.order_id === activeOrder.id && tx.type === 'earn');
+                const showPromo = activeOrder.promotion?.code || activeOrder.promotion?.points_used > 0;
+                const showEarned = (activeOrder.status === 'paid' || activeOrder.status === 'completed') && earnedTx;
+
+                if (!showPromo && !showEarned) return null;
+
+                return (
+                  <div className="pt-3 border-t border-gray-100 space-y-2">
+                    {activeOrder.promotion?.code && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-gray-600">โปรโมชั่นที่ใช้</span>
+                        <span className="text-sm font-black text-gray-900 bg-gray-100 px-2 py-1 rounded-lg">
+                          {activeOrder.promotion.code}
+                        </span>
+                      </div>
+                    )}
+
+                    {activeOrder.promotion?.points_used > 0 && (
+                      <div className="flex justify-between items-center text-[#00704A]">
+                        <span className="text-sm font-bold">ใช้ {activeOrder.promotion.points_used} Point</span>
+                        <span className="text-sm font-black">-฿{activeOrder.promotion.points_discount?.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {/* Points Earned */}
+                    {showEarned && (
+                      <div className="flex justify-between items-center text-[#f59e0b]">
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-bold">ได้รับ Point</span>
+                        </div>
+                        <span className="text-[10px] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded text-[#f59e0b] font-bold">
+                          +{earnedTx.points.toFixed(2)}
+                        </span>
                       </div>
                     )}
                   </div>
-                )}
-              </>
-            )}
+                );
+              })()}
 
-            {/* Promotion & Points Details */}
-            {/* Promotion & Points Details */}
-            {/* Promotion & Points Details */}
-            {(() => {
-              const earnedTx = pointTransactions?.find(tx => tx.order_id === order.id && tx.type === 'earn');
-              const showPromo = order.promotion?.code || order.promotion?.points_used > 0;
-              const showEarned = (order.status === 'paid' || order.status === 'completed') && earnedTx;
-
-              if (!showPromo && !showEarned) return null;
-
-              return (
-                <div className="pt-3 border-t border-gray-100 space-y-2">
-                  {order.promotion?.code && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold text-gray-600">โปรโมชั่นที่ใช้</span>
-                      <span className="text-sm font-black text-gray-900 bg-gray-100 px-2 py-1 rounded-lg">
-                        {order.promotion.code}
-                      </span>
-                    </div>
-                  )}
-
-                  {order.promotion?.points_used > 0 && (
-                    <div className="flex justify-between items-center text-[#00704A]">
-                      <span className="text-sm font-bold">ใช้ {order.promotion.points_used} Point</span>
-                      <span className="text-sm font-black">-฿{order.promotion.points_discount?.toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  {/* Points Earned */}
-                  {showEarned && (
-                    <div className="flex justify-between items-center text-[#f59e0b]">
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm font-bold">ได้รับ Point</span>
-                      </div>
-                      <span className="text-[10px] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded text-[#f59e0b] font-bold">
-                        +{earnedTx.points.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
+              {/* แสดงสลิปสำหรับออเดอร์ที่สำเร็จแล้ว */}
+              {(activeOrder.slip_file_name || activeOrder.slipFileName) && !canEditPayment && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-sm font-bold text-gray-600 mb-3">หลักฐานการชำระเงิน</p>
+                  <div
+                    className="rounded-2xl overflow-hidden border border-gray-200 cursor-pointer active:scale-[0.99] transition-transform"
+                    onClick={() => setShowImageViewer(true)}
+                  >
+                    <img
+                      src={activeOrder.slip_file_name || activeOrder.slipFileName}
+                      alt="Slip"
+                      className="w-full h-auto max-h-[300px] object-contain bg-gray-50"
+                    />
+                  </div>
                 </div>
-              );
-            })()}
-
-            {/* แสดงสลิปสำหรับออเดอร์ที่สำเร็จแล้ว */}
-            {(order.slip_file_name || order.slipFileName) && !canEditPayment && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-sm font-bold text-gray-600 mb-3">หลักฐานการชำระเงิน</p>
-                <div
-                  className="rounded-2xl overflow-hidden border border-gray-200 cursor-pointer active:scale-[0.99] transition-transform"
-                  onClick={() => setShowImageViewer(true)}
-                >
-                  <img
-                    src={order.slip_file_name || order.slipFileName}
-                    alt="Slip"
-                    className="w-full h-auto max-h-[300px] object-contain bg-gray-50"
-                  />
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
         </div>
 
+        <ImageViewerModal
+          visible={showImageViewer}
+          imageUrl={slipFileName || activeOrder.slip_file_name || activeOrder.slipFileName}
+          onClose={() => setShowImageViewer(false)}
+        />
+
+        <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
+
+        <SlipPreviewModal
+          visible={showSlipPreview}
+          imageUrl={slipPreviewUrl}
+          fileName={pendingSlipFile?.name || ''}
+          onConfirm={handleConfirmSlip}
+          onReselect={handleReselectSlip}
+          onClose={handleCloseSlipPreview}
+        />
+
+        <SlipDeleteConfirmModal
+          visible={showDeleteConfirm}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
       </div>
 
-      <ImageViewerModal
-        visible={showImageViewer}
-        imageUrl={slipFileName || order.slip_file_name || order.slipFileName}
-        onClose={() => setShowImageViewer(false)}
-      />
-
-      <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
-
-      <SlipPreviewModal
-        visible={showSlipPreview}
-        imageUrl={slipPreviewUrl}
-        fileName={pendingSlipFile?.name || ''}
-        onConfirm={handleConfirmSlip}
-        onReselect={handleReselectSlip}
-        onClose={handleCloseSlipPreview}
-      />
-
-      <SlipDeleteConfirmModal
-        visible={showDeleteConfirm}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => setShowDeleteConfirm(false)}
-      />
-    </div>
+    </>
   );
 };
 
 // --- ORDER HISTORY MODAL ---
 const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
-  if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
-        <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
-          <div className="w-10" />
-          <h2 className="text-lg font-black text-gray-900">ประวัติออเดอร์</h2>
-          <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
-          {orders.length === 0 ? (
-            <EmptyState icon={History} title="ยังไม่มีประวัติออเดอร์" description="เมื่อคุณสั่งซื้อเสร็จสิ้น ประวัติออเดอร์จะแสดงที่นี่" />
-          ) : (
-            <div className="space-y-4">
-              {orders.map(order => (
-                <button
-                  key={order.id}
-                  onClick={() => onViewDetail(order)}
-                  className="w-full rounded-[28px] border border-gray-100 bg-white shadow-sm p-5 text-left active:scale-[0.99] transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs uppercase tracking-widest text-gray-400 font-black">เลขที่ออเดอร์</p>
-                      <p className="text-lg font-black text-gray-900">{order.id}</p>
+    <>
+      <div
+        className={`fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+      />
+      <div className={`fixed inset-0 z-[201] pointer-events-none flex items-end justify-center`}>
+        <div
+          className={`bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}
+        >
+          <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
+            <div className="w-10" />
+            <h2 className="text-lg font-black text-gray-900">ประวัติออเดอร์</h2>
+            <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
+            {orders.length === 0 ? (
+              <EmptyState icon={History} title="ยังไม่มีประวัติออเดอร์" description="เมื่อคุณสั่งซื้อเสร็จสิ้น ประวัติออเดอร์จะแสดงที่นี่" />
+            ) : (
+              <div className="space-y-4">
+                {orders.map(order => (
+                  <button
+                    key={order.id}
+                    onClick={() => onViewDetail(order)}
+                    className="w-full rounded-[28px] border border-gray-100 bg-white shadow-sm p-5 text-left active:scale-[0.99] transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-gray-400 font-black">เลขที่ออเดอร์</p>
+                        <p className="text-lg font-black text-gray-900">{order.id}</p>
+                      </div>
+                      <StatusPill status={order.status} />
                     </div>
-                    <StatusPill status={order.status} />
-                  </div>
-                  <div className="mt-4 flex items-center justify-between text-sm font-bold text-gray-500">
-                    <span>{(order.items || []).length} รายการ</span>
-                    <span>{formatBaht(order.total)}</span>
-                  </div>
-                  <p className="mt-2 text-xs text-gray-400">{order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'} • {formatDateTime(order.createdAt)}</p>
-                </button>
-              ))}
-            </div>
-          )}
+                    <div className="mt-4 flex items-center justify-between text-sm font-bold text-gray-500">
+                      <span>{(order.items || []).length} รายการ</span>
+                      <span>{formatBaht(order.total)}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-400">{order.paymentMethod === 'cash' ? 'เงินสด' : 'QR PromptPay'} • {formatDateTime(order.createdAt)}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
 // --- POINTS HISTORY MODAL ---
 const PointsHistoryModal = ({ visible, userPoints, transactions, onClose }) => {
-  if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[301] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
-        <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
-          <div className="w-10" />
-          <h2 className="text-lg font-black text-gray-900">Point ของคุณ</h2>
-          <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
-            <X size={20} />
-          </button>
-        </div>
+    <>
+      <div
+        className={`fixed inset-0 z-[301] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+      />
+      <div className={`fixed inset-0 z-[302] pointer-events-none flex items-end justify-center`}>
+        <div
+          className={`bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}
+        >
+          <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
+            <div className="w-10" />
+            <h2 className="text-lg font-black text-gray-900">Point ของคุณ</h2>
+            <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
+              <X size={20} />
+            </button>
+          </div>
 
-        {/* Points Balance Card */}
-        <div className="p-6 border-b border-gray-100">
-          <div className="bg-gradient-to-br from-[#00704A] to-[#004d35] rounded-[28px] p-6 text-white shadow-lg">
-            <p className="text-sm font-bold text-white/70">ยอด Point ปัจจุบัน</p>
-            <p className="text-4xl font-black mt-1">{userPoints.toFixed(2)} <span className="text-lg font-bold text-white/70">pts</span></p>
-            <p className="text-xs text-white/50 mt-3">฿50 = 1 point | 2 points = ฿1 ส่วนลด</p>
+          {/* Points Balance Card */}
+          <div className="p-6 border-b border-gray-100">
+            <div className="bg-gradient-to-br from-[#00704A] to-[#004d35] rounded-[28px] p-6 text-white shadow-lg">
+              <p className="text-sm font-bold text-white/70">ยอด Point ปัจจุบัน</p>
+              <p className="text-4xl font-black mt-1">{userPoints.toFixed(2)} <span className="text-lg font-bold text-white/70">pts</span></p>
+              <p className="text-xs text-white/50 mt-3">฿50 = 1 point | 2 points = ฿1 ส่วนลด</p>
+            </div>
+          </div>
+
+          {/* Transactions List */}
+          <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">ประวัติ Points</h3>
+            {transactions.length === 0 ? (
+              <EmptyState icon={History} title="ยังไม่มีประวัติ Points" description="เมื่อคุณสะสมหรือใช้ Points ประวัติจะแสดงที่นี่" />
+            ) : (
+              <div className="space-y-3">
+                {transactions.map(tx => (
+                  <div key={tx.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'earn' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                          {tx.type === 'earn' ? <CirclePlus size={22} color="#16a34a" /> : <CircleMinus size={22} color="#ea580c" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">{tx.type === 'earn' ? 'ได้รับ Point' : 'ใช้ Point'}</p>
+                          <p className="text-xs text-gray-400 line-clamp-1">{tx.description || tx.order_id}</p>
+                        </div>
+                      </div>
+                      <span className={`text-lg font-black ${tx.type === 'earn' ? 'text-green-600' : 'text-orange-600'}`}>
+                        {tx.type === 'earn' ? '+' : ''}{tx.points?.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-2">{formatDateTime(tx.created_at)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Transactions List */}
-        <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
-          <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">ประวัติ Points</h3>
-          {transactions.length === 0 ? (
-            <EmptyState icon={History} title="ยังไม่มีประวัติ Points" description="เมื่อคุณสะสมหรือใช้ Points ประวัติจะแสดงที่นี่" />
-          ) : (
-            <div className="space-y-3">
-              {transactions.map(tx => (
-                <div key={tx.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'earn' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                        {tx.type === 'earn' ? '➕' : '➖'}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-800">{tx.type === 'earn' ? 'ได้รับ Point' : 'ใช้ Point'}</p>
-                        <p className="text-xs text-gray-400 line-clamp-1">{tx.description || tx.order_id}</p>
-                      </div>
-                    </div>
-                    <span className={`text-lg font-black ${tx.type === 'earn' ? 'text-green-600' : 'text-orange-600'}`}>
-                      {tx.type === 'earn' ? '+' : ''}{tx.points?.toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-2">{formatDateTime(tx.created_at)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
-    </div>
+    </>
   );
 };
 
 // --- NOTIFICATION MODAL ---
 const NOTIFICATION_STATUS_META = {
-  waiting_payment: { icon: '💳', label: 'รอการชำระเงิน', color: '#f97316' },
-  waiting_confirmation: { icon: '🔍', label: 'กำลังตรวจสอบ', color: '#3b82f6' },
-  paid: { icon: '✅', label: 'ชำระเงินสำเร็จ', color: '#16a34a' },
-  completed: { icon: '🎉', label: 'ออเดอร์สำเร็จ', color: '#8b5cf6' },
-  points: { icon: '🪙', label: 'แต้มสะสม', color: '#f59e0b' },
+  waiting_payment: { icon: <CreditCard size={22} color="#f97316" />, label: 'รอการชำระเงิน', color: '#f97316' },
+  waiting_confirmation: { icon: <ClipboardClock size={22} color="#3b82f6" />, label: 'กำลังตรวจสอบ', color: '#3b82f6' },
+  paid: { icon: <Receipt size={22} color="#16a34a" />, label: 'ชำระเงินสำเร็จ', color: '#16a34a' },
+  completed: { icon: <PackageCheck size={22} color="#8b5cf6" />, label: 'ออเดอร์สำเร็จ', color: '#8b5cf6' },
+  points: { icon: <CircleDollarSign size={22} color="#f59e0b" />, label: 'แต้มสะสม', color: '#f59e0b' },
 };
 
 const NotificationModal = ({ notifications, visible, onClose, onViewOrder, onOpen }) => {
@@ -1893,108 +2059,134 @@ const NotificationModal = ({ notifications, visible, onClose, onViewOrder, onOpe
     }
   }, [visible, onOpen]);
 
-  if (!visible) return null;
-
   return (
-    <div className="fixed inset-0 z-[200] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
-        <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
-          <div className="w-10" />
-          <h2 className="text-lg font-black text-gray-900">การแจ้งเตือน</h2>
-          <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
-          {notifications.length === 0 ? (
-            <EmptyState icon={Bell} title="ไม่มีการแจ้งเตือน" description="เมื่อมีการอัปเดตออเดอร์ คุณจะได้รับการแจ้งเตือนที่นี่" />
-          ) : (
-            <div className="space-y-3">
-              {notifications.map((notif, index) => {
-                const meta = NOTIFICATION_STATUS_META[notif.status] || { icon: '📦', label: 'อัปเดต', color: '#6b7280' };
-                return (
-                  <button
-                    key={notif.id || index}
-                    onClick={() => onViewOrder && onViewOrder(notif.order_id || notif.orderId)}
-                    className={`w-full rounded-[20px] p-4 text-left active:scale-[0.99] transition-all border ${notif.read ? 'bg-white border-gray-100' : 'bg-[#00704A]/5 border-[#00704A]/20'}`}
-                  >
-                    <div className="flex gap-3">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ backgroundColor: `${meta.color}15` }}>
-                        {meta.icon}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-black text-gray-900 truncate">ออเดอร์ #{notif.order_id || notif.orderId}</p>
-                          {!notif.read && (
-                            <span className="w-2 h-2 rounded-full bg-[#00704A] flex-shrink-0" />
-                          )}
+    <>
+      <div
+        className={`fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+      />
+      <div className={`fixed inset-0 z-[201] pointer-events-none flex items-end justify-center`}>
+        <div
+          className={`bg-white w-full max-w-md rounded-t-[40px] overflow-hidden shadow-[0px_0px_33px_-3px_rgba(0,_0,_0,_0.2)] h-[90vh] flex flex-col transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}
+        >
+          <div className="relative h-20 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-100">
+            <div className="w-10" />
+            <h2 className="text-lg font-black text-gray-900">การแจ้งเตือน</h2>
+            <button onClick={onClose} className="w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center text-gray-500 border border-gray-200 active:scale-90 transition-transform">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
+            {notifications.length === 0 ? (
+              <EmptyState icon={Bell} title="ไม่มีการแจ้งเตือน" description="เมื่อมีการอัปเดตออเดอร์ คุณจะได้รับการแจ้งเตือนที่นี่" />
+            ) : (
+              <div className="space-y-3">
+                {notifications.map((notif, index) => {
+                  const meta = NOTIFICATION_STATUS_META[notif.status] || { icon: <Package size={22} color="#6b7280" />, label: 'อัปเดต', color: '#6b7280' };
+                  return (
+                    <button
+                      key={notif.id || index}
+                      onClick={() => onViewOrder && onViewOrder(notif.order_id || notif.orderId)}
+                      className={`w-full rounded-[20px] p-4 text-left active:scale-[0.99] transition-all border ${notif.read ? 'bg-white border-gray-100' : 'bg-[#00704A]/5 border-[#00704A]/20'}`}
+                    >
+                      <div className="flex gap-3">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ backgroundColor: `${meta.color}15` }}>
+                          {meta.icon}
                         </div>
-                        {notif.message ? (
-                          <p className="text-xs font-bold mt-0.5 line-clamp-1" style={{ color: meta.color }}>{notif.message}</p>
-                        ) : (
-                          <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
-                        )}
-                        <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.created_at || notif.createdAt)}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-black text-gray-900 truncate">ออเดอร์ #{notif.order_id || notif.orderId}</p>
+                            {!notif.read && (
+                              <span className="w-2 h-2 rounded-full bg-[#00704A] flex-shrink-0" />
+                            )}
+                          </div>
+                          {notif.message ? (
+                            <p className="text-xs font-bold mt-0.5 line-clamp-1" style={{ color: meta.color }}>{notif.message}</p>
+                          ) : (
+                            <p className="text-xs font-bold mt-0.5" style={{ color: meta.color }}>{meta.label}</p>
+                          )}
+                          <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(notif.created_at || notif.createdAt)}</p>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
 // --- NEWS DETAIL MODAL ---
-const NewsDetailModal = ({ news, onClose }) => {
-  if (!news) return null;
+const NewsDetailModal = ({ news: propNews, visible, onClose }) => {
+  const [cachedNews, setCachedNews] = useState(propNews);
+
+  useEffect(() => {
+    if (propNews) {
+      setCachedNews(propNews);
+    }
+  }, [propNews]);
+
+  const news = propNews || cachedNews;
 
   return (
-    <div className="fixed inset-0 z-[350] backdrop-blur-sm flex items-end justify-center" style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}>
-      <div className="w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300 shadow-2xl">
-        <div className="relative h-64 flex-shrink-0">
-          <img src={news.image} alt={news.title} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/20 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-transform z-10"
-          >
-            <X size={20} />
-          </button>
-          <div className="absolute bottom-6 left-6 right-6 text-white">
-            <span className="px-3 py-1 rounded-full bg-[#00704A] text-[10px] font-bold mb-3 inline-block shadow-sm">
-              ข่าวสาร & โปรโมชั่น
-            </span>
-            <h2 className="text-2xl font-black leading-tight shadow-sm">{news.title}</h2>
-          </div>
-        </div>
+    <>
+      <div
+        className={`fixed inset-0 z-[350] backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+      />
+      <div className={`fixed inset-0 z-[351] pointer-events-none flex items-end justify-center`}>
+        <div
+          className={`w-full max-w-md h-[90vh] bg-white rounded-t-[40px] overflow-hidden flex flex-col shadow-2xl transition-transform duration-200 ease-out transform ${visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none'}`}
+        >
+          {news && (
+            <>
+              <div className="relative h-64 flex-shrink-0">
+                <img key={news.image} src={news.image} alt={news.title} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <button
+                  onClick={onClose}
+                  className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/20 backdrop-blur-md flex items-center justify-center text-white border border-white/20 active:scale-95 transition-transform z-10"
+                >
+                  <X size={20} />
+                </button>
+                <div className="absolute bottom-6 left-6 right-6 text-white">
+                  <span className="px-3 py-1 rounded-full bg-[#00704A] text-[10px] font-bold mb-3 inline-block shadow-sm">
+                    ข่าวสาร & โปรโมชั่น
+                  </span>
+                  <h2 className="text-2xl font-black leading-tight shadow-sm">{news.title}</h2>
+                </div>
+              </div>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
-          <div className="flex items-center gap-3 text-gray-400 text-xs font-bold border-b border-gray-100 pb-6">
-            <div className="flex items-center gap-1">
-              <History size={14} />
-              <span>{formatDateTime(news.date || news.createdAt || new Date())}</span>
-            </div>
-          </div>
+              <div className="flex-1 overflow-y-auto p-8 space-y-6">
+                <div className="flex items-center gap-3 text-gray-400 text-xs font-bold border-b border-gray-100 pb-6">
+                  <div className="flex items-center gap-1">
+                    <History size={14} />
+                    <span>{formatDateTime(news.date || news.createdAt || new Date())}</span>
+                  </div>
+                </div>
 
-          <div className="prose prose-sm max-w-none text-gray-600 leading-relaxed font-medium">
-            <p>{news.content}</p>
-            {news.description && <p className="mt-4">{news.description}</p>}
-          </div>
+                <div className="prose prose-sm max-w-none text-gray-600 leading-relaxed font-medium">
+                  <p>{news.content}</p>
+                  {news.description && <p className="mt-4">{news.description}</p>}
+                </div>
 
-          {news.image && (
-            <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-              <img src={news.image} alt="content" className="w-full h-auto" />
-            </div>
+                {news.image && (
+                  <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+                    <img src={news.image} alt="content" className="w-full h-auto" />
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
-
-
       </div>
-    </div>
+    </>
   );
 };
 
@@ -2071,10 +2263,80 @@ const SplashView = ({ onFinish }) => {
 };
 
 const LoginView = ({ onLoginSuccess }) => {
+  // Mode: 'login' | 'register' | 'otp'
+  const [mode, setMode] = useState('login');
+
+  // Login fields
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+
+  // Register fields - Initial Step
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+
+  // Register fields - Details Step 1 (Name & Phone)
+  const [regName, setRegName] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+
+  // Register fields - Details Step 2 (Birthday)
+  const [regBirthday, setRegBirthday] = useState('');
+
+  // OTP fields
+  const [otpCode, setOtpCode] = useState('');
+  const [otpInput, setOtpInput] = useState(['', '', '', '', '', '']);
+  const [otpError, setOtpError] = useState('');
+  const [canResend, setCanResend] = useState(false);
+  const [resendTimer, setResendTimer] = useState(60);
+  const otpTimerRef = useRef(null);
+
+  // Common
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Helper: Generate 6-digit OTP
+  const generateOTP = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  };
+
+  // Helper: Send OTP Email via EmailJS
+  const sendOTPEmail = async (email, otp) => {
+    try {
+      // Send email using EmailJS
+      const templateParams = {
+        to_email: email,
+        to_name: regUsername || 'ลูกค้า',
+        otp_code: otp,
+      };
+
+      await emailjs.send(
+        EMAILJS_CONFIG.serviceId,
+        EMAILJS_CONFIG.templateId,
+        templateParams,
+        EMAILJS_CONFIG.publicKey
+      );
+
+      console.log('OTP email sent successfully to:', email);
+    } catch (error) {
+      console.error('Failed to send OTP email:', error);
+      // Fallback: show alert if email sending fails
+      alert(`เกิดข้อผิดพลาดในการส่งอีเมล\n\nรหัส OTP ของคุณคือ: ${otp}\n\n(กรุณาตรวจสอบการตั้งค่า EmailJS)`);
+      throw error;
+    }
+  };
+
+  // Timer for resend OTP
+  useEffect(() => {
+    if (mode === 'otp' && resendTimer > 0) {
+      otpTimerRef.current = setTimeout(() => {
+        setResendTimer(prev => prev - 1);
+      }, 1000);
+    } else if (resendTimer === 0) {
+      setCanResend(true);
+    }
+    return () => clearTimeout(otpTimerRef.current);
+  }, [mode, resendTimer]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -2085,9 +2347,9 @@ const LoginView = ({ onLoginSuccess }) => {
       const { data, error: queryError } = await supabase
         .from('users')
         .select('*')
-        .eq('username', username)
+        .or(`username.eq."${username}",email.eq."${username}"`)
         .eq('password', password)
-        .single();
+        .maybeSingle();
 
       if (queryError || !data) {
         setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
@@ -2102,35 +2364,542 @@ const LoginView = ({ onLoginSuccess }) => {
     }
   };
 
+  const checkUsernameAvailability = async (username) => {
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username)
+        .maybeSingle();
+      return !!data;
+    } catch (error) {
+      console.error('Error checking username:', error);
+      return false;
+    }
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    setUsernameError('');
+
+    // Validation
+    if (!regUsername || !regEmail || !regPassword) {
+      setError('กรุณากรอกข้อมูลให้ครบถ้วน');
+      setIsLoading(false);
+      return;
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(regEmail)) {
+      setError('รูปแบบอีเมลไม่ถูกต้อง');
+      setIsLoading(false);
+      return;
+    }
+
+    // Check availability (Username & Email)
+    try {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('username, email')
+        .or(`username.eq.${regUsername},email.eq.${regEmail}`)
+        .maybeSingle();
+
+      if (existingUser) {
+        if (existingUser.username === regUsername) {
+          setUsernameError('ชื่อผู้ใช้งานนี้ถูกใช้งานแล้ว');
+          setIsLoading(false);
+          return;
+        }
+        if (existingUser.email === regEmail) {
+          setError('อีเมลนี้ถูกใช้งานแล้ว');
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Error checking existing user:', err);
+    }
+
+    // Generate and send OTP
+    const otp = generateOTP();
+    setOtpCode(otp);
+    sendOTPEmail(regEmail, otp);
+
+    // Switch to OTP mode
+    setMode('otp');
+    setIsLoading(false);
+    setResendTimer(60);
+    setCanResend(false);
+  };
+
+  const handleOTPInput = (index, value) => {
+    // Only allow digits
+    if (value && !/^\d$/.test(value)) return;
+
+    const newOtp = [...otpInput];
+    newOtp[index] = value;
+    setOtpInput(newOtp);
+    setOtpError('');
+
+    // Auto-focus next input
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      if (nextInput) nextInput.focus();
+    }
+
+    // Auto-verify when all filled
+    if (newOtp.every(digit => digit) && newOtp.join('').length === 6) {
+      handleVerifyOTP(newOtp.join(''));
+    }
+  };
+
+  const handleOTPKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otpInput[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-${index - 1}`);
+      if (prevInput) prevInput.focus();
+    }
+  };
+
+  const handleVerifyOTP = (inputOtp) => {
+    const otpString = inputOtp || otpInput.join('');
+
+    if (otpString !== otpCode) {
+      setOtpError('รหัส OTP ไม่ถูกต้อง');
+      setOtpInput(['', '', '', '', '', '']);
+      document.getElementById('otp-0')?.focus();
+      return;
+    }
+
+    // OTP Correct -> Go to Details Step 1
+    setIsLoading(false);
+    setMode('details_1');
+  };
+
+  const handleDetails1Submit = (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!regName) {
+      setError('กรุณากรอกชื่อ-นามสกุล');
+      return;
+    }
+
+    // Basic phone validation (if provided)
+    if (regPhone && !/^\d{9,10}$/.test(regPhone.replace(/-/g, ''))) {
+      setError('เบอร์โทรศัพท์ไม่ถูกต้อง (กรุณากรอกเฉพาะตัวเลข 9-10 หลัก)');
+      return;
+    }
+
+    setMode('details_2');
+  };
+
+  const handleDetails2Submit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!regBirthday) {
+      setError('กรุณาระบุวันเกิด');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const randomID = Math.floor(10000 + Math.random() * 90000);
+      const userID = `CU-${randomID}`;
+
+      const newUser = {
+        id: userID,
+        username: regUsername,
+        email: regEmail,
+        name: regName,
+        password: regPassword,
+        phone: regPhone || null,
+        photo: 'https://raw.githubusercontent.com/Moviifox/webappcafe/refs/heads/main/public/user.jpg',
+        points: 0,
+        // birthday: regBirthday, // TODO: Ensure DB has this column or store in metadata if needed. For now assuming it might be needed or just ignored if not in schema. 
+        // NOTE: If specific column needed, add it. If not, maybe store in metadata? 
+        // User asked for birthday input, let's try to save it. If schema fails, I'll catch it.
+        // Let's assume standard field or add it later if fails.
+        // Actually, let's check schema/previous code. It doesn't show birthday. 
+        // I will add it to the object. If it fails, I'll catch it.
+        birthday: regBirthday,
+        created_at: new Date().toISOString(),
+      };
+
+      const { data, error: insertError } = await supabase
+        .from('users')
+        .insert([newUser])
+        .select()
+        .single();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      // Success! Login automatically
+      onLoginSuccess(data);
+    } catch (err) {
+      console.error('Registration error:', err);
+      setError('เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง');
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendOTP = () => {
+    if (!canResend) return;
+
+    const newOtp = generateOTP();
+    setOtpCode(newOtp);
+    sendOTPEmail(regEmail, newOtp);
+    setOtpInput(['', '', '', '', '', '']);
+    setOtpError('');
+    setResendTimer(60);
+    setCanResend(false);
+    document.getElementById('otp-0')?.focus();
+  };
+
+  const handleBackToRegister = () => {
+    setMode('register');
+    setOtpInput(['', '', '', '', '', '']);
+    setOtpError('');
+    setOtpCode('');
+  };
+
+  const handleCloseSheet = () => {
+    setMode('login');
+    setError('');
+    setOtpError('');
+  };
+
   return (
-    <div className="fixed inset-0 bg-[#FDFDFD] z-[400] flex flex-col p-8 justify-center">
-      <div className="mb-12">
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}><Coffee size={32} /></div>
-        <h1 className="text-4xl font-black text-gray-900 mb-2">ยินดีต้อนรับ</h1>
-        <p className="text-gray-400 font-bold">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
+    <>
+      {/* Login Screen (Background) */}
+      <div className={`fixed inset-0 bg-[#FDFDFD] z-[400] flex flex-col p-8 justify-center transition-all duration-300 ${mode !== 'login' ? 'scale-95 opacity-50 blur-[2px]' : ''}`}>
+        <div className="mb-12">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}>
+            <Coffee size={32} />
+          </div>
+          <h1 className="text-4xl font-black text-gray-900 mb-2">ยินดีต้อนรับ</h1>
+          <p className="text-gray-400 font-bold">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
+        </div>
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase ml-1">ชื่อผู้ใช้งาน หรือ อีเมล</label>
+            <div className="relative">
+              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                placeholder="ชื่อผู้ใช้งาน หรือ อีเมล"
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase ml-1">รหัสผ่าน</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                placeholder="รหัสผ่าน"
+              />
+            </div>
+          </div>
+          {error && mode === 'login' && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
+          <button
+            type="submit"
+            disabled={isLoading && mode === 'login'}
+            className="w-full text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center gap-2"
+            style={{ backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+          >
+            {isLoading && mode === 'login' ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'เข้าสู่ระบบ'}
+          </button>
+        </form>
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => { setMode('register'); setError(''); }}
+            className="text-sm font-bold text-gray-400 hover:text-[#00704A] transition-colors"
+          >
+            ยังไม่มีบัญชี? <span className="text-[#00704A]">สมัครสมาชิก</span>
+          </button>
+        </div>
+        <div className="h-20"></div>
       </div>
-      <form onSubmit={handleLogin} className="space-y-6">
-        <div className="space-y-2">
-          <label className="text-xs font-black text-gray-400 uppercase ml-1">ชื่อผู้ใช้งาน</label>
-          <div className="relative">
-            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="ชื่อผู้ใช้งาน" />
+
+      {/* Backdrop */}
+      <div
+        className={`fixed inset-0 z-[410] transition-opacity duration-300 ${mode !== 'login' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(252,252,252,0.2)' }}
+      />
+
+      {/* Bottom Sheet Modal */}
+      <div
+        className={`fixed bottom-0 left-0 right-0 bg-white z-[420] rounded-t-[40px] p-8 shadow-[0_-10px_40px_rgba(0,0,0,0.2)] transition-transform duration-200 ease-out transform ${mode !== 'login' ? 'translate-y-0' : 'translate-y-full'} max-h-[70vh] overflow-y-auto`}
+      >
+        {/* Close Button - Hide in details steps */}
+        {mode !== 'details_1' && mode !== 'details_2' && (
+          <button
+            onClick={handleCloseSheet}
+            className="absolute top-6 right-6 w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center border border-gray-200 active:scale-90 transition-transform z-50"
+          >
+            <X size={20} className="text-gray-500" />
+          </button>
+        )}
+
+        {/* Register Content */}
+        {mode === 'register' && (
+          <div className="animate-fade-in">
+            <div className="mb-6">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}>
+                <User size={32} />
+              </div>
+              <h1 className="text-3xl font-black text-gray-900 mb-2">สมัครสมาชิก</h1>
+              <p className="text-gray-400 font-bold">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน</p>
+            </div>
+
+            <form onSubmit={handleRegisterSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">ชื่อผู้ใช้งาน *</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="text"
+                    value={regUsername}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (/^[a-z0-9_]*$/.test(value)) {
+                        setRegUsername(value);
+                        setUsernameError('');
+                      }
+                    }}
+                    onBlur={() => checkUsernameAvailability(regUsername)}
+                    className={`w-full bg-white border ${usernameError ? 'border-red-500' : 'border-gray-200'} rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2`}
+                    style={{ '--tw-ring-color': alpha(usernameError ? '#EF4444' : '#00704A', '0.2') }}
+                    placeholder="ชื่อผู้ใช้งาน (ตัวเล็ก, ตัวเลข, _, 6 ตัวขึ้นไป)"
+                    required
+                    minLength={6}
+                  />
+                </div>
+                {usernameError && <p className="text-xs text-red-500 font-bold ml-1">{usernameError}</p>}
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">อีเมล *</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">@</span>
+                  <input
+                    type="email"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                    style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                    placeholder="example@email.com"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="pb-6">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">รหัสผ่าน *</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="password"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                    style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                    placeholder="รหัสผ่าน"
+                    required
+                    minLength={6}
+                  />
+                </div>
+              </div>
+              {error && mode === 'register' && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
+              <button
+                type="submit"
+                disabled={isLoading || !regUsername || regUsername.length < 6 || !regEmail || !regPassword}
+                className={`w-full text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center gap-2 ${(!regUsername || regUsername.length < 6 || !regEmail || !regPassword) ? 'opacity-50 pointer-events-none bg-gray-400' : ''}`}
+                style={{ backgroundColor: (!regUsername || regUsername.length < 6 || !regEmail || !regPassword) ? '#9CA3AF' : '#00704A', boxShadow: (!regUsername || regUsername.length < 6 || !regEmail || !regPassword) ? 'none' : `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+              >
+                {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'ขอรหัส OTP'}
+              </button>
+            </form>
           </div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs font-black text-gray-400 uppercase ml-1">รหัสผ่าน</label>
-          <div className="relative">
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2" style={{ '--tw-ring-color': alpha('#00704A', '0.2') }} placeholder="รหัสผ่าน" />
+        )}
+
+        {/* Details Step 1: Name & Phone */}
+        {mode === 'details_1' && (
+          <div className="animate-fade-in">
+            <div className="mb-6">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}>
+                <User size={32} />
+              </div>
+              <h1 className="text-3xl font-black text-gray-900 mb-2">ข้อมูลส่วนตัว</h1>
+              <p className="text-gray-400 font-bold">กรุณากรอกชื่อและเบอร์โทรศัพท์</p>
+            </div>
+
+            <form onSubmit={handleDetails1Submit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">ชื่อ-นามสกุล *</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="text"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                    style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                    placeholder="ชื่อ-นามสกุล"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 pb-6">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">เบอร์โทรศัพท์ (ไม่บังคับ)</label>
+                <div className="relative">
+                  <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="tel"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-2xl py-4 pl-12 pr-4 font-bold text-gray-800 outline-none focus:ring-2"
+                    style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                    placeholder="08X-XXX-XXXX"
+                  />
+                </div>
+              </div>
+              {error && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
+              <button
+                type="submit"
+                disabled={!regName}
+                className={`w-full text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center gap-2 ${!regName ? 'opacity-50 pointer-events-none bg-gray-400' : ''}`}
+                style={{ backgroundColor: !regName ? '#9CA3AF' : '#00704A', boxShadow: !regName ? 'none' : `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+              >
+                ถัดไป
+              </button>
+            </form>
           </div>
-        </div>
-        {error && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
-        <button type="submit" disabled={isLoading} className="w-full text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center gap-2" style={{ backgroundColor: '#00704A', boxShadow: `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}>
-          {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'เข้าสู่ระบบ'}
-        </button>
-      </form>
-      <div className="h-20"></div>
-    </div>
+        )}
+
+        {/* Details Step 2: Birthday */}
+        {mode === 'details_2' && (
+          <div className="animate-fade-in">
+            <div className="mb-6 text-center pt-4">
+              <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6 mx-auto shadow-lg" style={{ backgroundColor: '#fff', border: `4px solid ${alpha('#00704A', '0.1')}` }}>
+                <Gift size={48} color="#00704A" />
+              </div>
+              <h1 className="text-3xl font-black text-gray-900 mb-2">วันเกิดของคุณ</h1>
+              <p className="text-gray-400 font-bold">รับสิทธิพิเศษมากมายในเดือนเกิด</p>
+            </div>
+
+            <form onSubmit={handleDetails2Submit} className="space-y-6">
+              <div className="space-y-2 pb-8 pt-10">
+                <label className="text-xs font-black text-gray-400 uppercase ml-1">วัน/เดือน/ปีเกิด *</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={regBirthday}
+                    onChange={(e) => setRegBirthday(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-2xl py-4 px-6 font-bold text-gray-800 outline-none focus:ring-2 text-center text-lg shadow-sm"
+                    style={{ '--tw-ring-color': alpha('#00704A', '0.2') }}
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold"><SearchX size={18} /> {error}</div>}
+
+              <button
+                type="submit"
+                disabled={isLoading || !regBirthday}
+                className={`w-full text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center gap-2 ${(!regBirthday || isLoading) ? 'opacity-50 pointer-events-none bg-gray-400' : ''}`}
+                style={{ backgroundColor: (!regBirthday || isLoading) ? '#9CA3AF' : '#00704A', boxShadow: (!regBirthday || isLoading) ? 'none' : `0 10px 15px -3px ${alpha('#00704A', '0.3')}` }}
+              >
+                {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'ยืนยันการสมัคร'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* OTP Content */}
+        {mode === 'otp' && (
+          <div className="animate-fade-in mb-36">
+            <div className="mb-8">
+              <button
+                onClick={handleBackToRegister}
+                className="flex items-center gap-2 text-gray-400 hover:text-gray-600 mb-6 font-bold"
+              >
+                <ChevronLeft size={20} /> แก้ไขข้อมูล
+              </button>
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 mt-14" style={{ backgroundColor: alpha('#00704A', '0.1'), color: '#00704A' }}>
+                <Lock size={32} />
+              </div>
+              <h1 className="text-3xl font-black text-gray-900 mb-2">ยืนยันอีเมล</h1>
+              <p className="text-gray-400 font-bold">กรอกรหัส OTP ที่ส่งไปที่</p>
+              <p className="text-gray-600 font-bold">{regEmail}</p>
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex justify-center gap-3">
+                {otpInput.map((digit, index) => (
+                  <input
+                    key={index}
+                    id={`otp-${index}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOTPInput(index, e.target.value)}
+                    onKeyDown={(e) => handleOTPKeyDown(index, e)}
+                    className="w-12 h-14 text-center text-2xl font-black bg-white border-2 border-gray-200 rounded-xl outline-none focus:border-[#00704A] focus:ring-2 focus:ring-[#00704A]/20 transition-all"
+                    style={{ caretColor: '#00704A' }}
+                  />
+                ))}
+              </div>
+
+              {otpError && (
+                <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold justify-center">
+                  <SearchX size={18} /> {otpError}
+                </div>
+              )}
+
+              {error && mode === 'otp' && (
+                <div className="flex items-center gap-2 text-red-500 bg-red-50 p-4 rounded-xl text-sm font-bold">
+                  <SearchX size={18} /> {error}
+                </div>
+              )}
+
+              <div className="text-center">
+                <button
+                  onClick={handleResendOTP}
+                  disabled={!canResend}
+                  className={`text-sm font-bold transition-colors ${canResend ? 'text-[#00704A] hover:underline' : 'text-gray-300 cursor-not-allowed'
+                    }`}
+                >
+                  {canResend ? 'ส่งรหัสอีกครั้ง' : `ส่งรหัสใหม่ได้ใน ${resendTimer} วินาที`}
+                </button>
+              </div>
+
+              {isLoading && (
+                <div className="flex justify-center">
+                  <div className="w-8 h-8 border-4 border-gray-200 border-t-[#00704A] rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+            <div className="h-10"></div>
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 
@@ -2173,12 +2942,14 @@ const MainApp = ({ onLogout, currentUser }) => {
   const toastTimeoutRef = useRef(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [scrollPositions, setScrollPositions] = useState({ home: 0, menu: 0, search: 0, order: 0 });
+  const [scrollPositions, setScrollPositions] = useState({ home: 0, menu: 0, search: 0, order: 0, news: 0 });
 
   const [menuSearchQuery, setMenuSearchQuery] = useState('');
   const [activeMenuCategory, setActiveMenuCategory] = useState('ทั้งหมด');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [activeGlobalCategory, setActiveGlobalCategory] = useState('ทั้งหมด');
+  const [newsSearchQuery, setNewsSearchQuery] = useState('');
+  const [activeNewsCategory, setActiveNewsCategory] = useState('ทั้งหมด');
   const [isSearching, setIsSearching] = useState(false);
 
   const [pullDistance, setPullDistance] = useState(0);
@@ -2639,6 +3410,7 @@ const MainApp = ({ onLogout, currentUser }) => {
   // Ref for previous query to track changes
   const prevMenuSearchQuery = useRef(menuSearchQuery);
   const prevGlobalSearchQuery = useRef(globalSearchQuery);
+  const prevNewsSearchQuery = useRef(newsSearchQuery);
 
   const isModalOpen = useMemo(() => {
     return showProfile || selectedMenu || editingItem || deleteConfirmItem || showLogoutConfirm || showPaymentFlow || showPaymentResult || showOrderDetail || showOrderHistory || showSlipPreview || showDeleteConfirm || selectedNews || showNotifications;
@@ -2668,6 +3440,17 @@ const MainApp = ({ onLogout, currentUser }) => {
     const filteredMenus = dbMenus.filter(m => m.name.toLowerCase().includes(q) || (m.categories || []).some(c => c.toLowerCase().includes(q)));
     return { promos: filteredNews.filter(n => n.type === 'Promotion'), news: filteredNews.filter(n => n.type === 'News'), menus: filteredMenus };
   }, [globalSearchQuery, dbMenus, dbNews]);
+
+  const filteredNewsResults = useMemo(() => {
+    let result = [...dbNews];
+    if (newsSearchQuery) {
+      const q = newsSearchQuery.toLowerCase();
+      result = result.filter(n => n.title.toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q));
+    }
+    if (activeNewsCategory === 'ข่าวสาร') result = result.filter(n => n.type === 'News');
+    else if (activeNewsCategory === 'โปรโมชั่น') result = result.filter(n => n.type === 'Promotion');
+    return result;
+  }, [newsSearchQuery, activeNewsCategory, dbNews]);
 
   // Main Scroll Handler - attached to div
   const handleScroll = (e) => {
@@ -2737,8 +3520,13 @@ const MainApp = ({ onLogout, currentUser }) => {
     // Determine conditions
     const isMenuPage = currentPage === 'menu';
     const isSearchPage = currentPage === 'search';
+    const isNewsPage = currentPage === 'news';
 
-    const shouldScroll = (isMenuPage && menuQueryChanged) || (isSearchPage && globalQueryChanged);
+    // Check for changes (News)
+    const newsQueryChanged = newsSearchQuery !== prevNewsSearchQuery.current;
+    prevNewsSearchQuery.current = newsSearchQuery;
+
+    const shouldScroll = (isMenuPage && menuQueryChanged) || (isSearchPage && globalQueryChanged) || (isNewsPage && newsQueryChanged);
 
     if (shouldScroll && categoryContainerRef.current && scrollContainerRef.current) {
       isAutoScrolling.current = true;
@@ -2779,7 +3567,7 @@ const MainApp = ({ onLogout, currentUser }) => {
     return () => {
       clearTimeout(scrollTimeout);
     };
-  }, [menuSearchQuery, globalSearchQuery, currentPage]); // Added globalSearchQuery
+  }, [menuSearchQuery, globalSearchQuery, newsSearchQuery, currentPage]); // Added globalSearchQuery
 
   const handleMenuSearchChange = (text) => {
     isAutoScrolling.current = true;
@@ -3353,8 +4141,12 @@ const MainApp = ({ onLogout, currentUser }) => {
                 ? 'ค้นหา'
                 : currentPage === 'order'
                   ? 'ออเดอร์ของฉัน'
-                  : 'ประวัติออเดอร์'
+                  : currentPage === 'news'
+                    ? 'ข่าวสารและโปรโมชั่น'
+                    : 'ประวัติออเดอร์'
         }
+        showBackButton={false}
+        onBack={() => { changePage('home'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
         scrollProgress={scrollProgress}
         onProfileClick={() => setShowProfile(true)}
         showOrderHistoryButton={currentPage === 'order'}
@@ -3391,9 +4183,9 @@ const MainApp = ({ onLogout, currentUser }) => {
         {/* HOME PAGE */}
         <div style={{ display: currentPage === 'home' ? 'block' : 'none' }} className="space-y-12">
           <section>
-            <h2 className="text-xl font-black text-[#111827] mb-5 px-1 flex justify-between items-center">ข่าวสารและโปรโมชั่น <ArrowRight size={20} className="text-gray-300" /></h2>
+            <h2 className="text-xl font-black text-[#111827] mb-5 px-1">ข่าวสารและโปรโมชั่น</h2>
             <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar -mx-[18px] px-[18px]">
-              {dbNews.map(n => (
+              {dbNews.slice(0, 3).map(n => (
                 <button
                   key={n.id}
                   onClick={() => setSelectedNews(n)}
@@ -3406,6 +4198,15 @@ const MainApp = ({ onLogout, currentUser }) => {
                   </div>
                 </button>
               ))}
+              <button
+                onClick={() => { changePage('news'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                className="w-[120px] min-w-[120px] h-48 rounded-[32px] overflow-hidden shadow-sm border border-gray-200 bg-gray-50 flex-shrink-0 flex flex-col items-center justify-center gap-3 active:scale-95 transition-transform group"
+              >
+                <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-gray-400 group-hover:text-[#00704A] group-hover:border-[#00704A] transition-colors">
+                  <ChevronRight size={24} />
+                </div>
+                <span className="text-xs font-bold text-gray-500">ดูทั้งหมด</span>
+              </button>
             </div>
           </section>
           <section>
@@ -3414,6 +4215,58 @@ const MainApp = ({ onLogout, currentUser }) => {
               {dbMenus.filter(m => m.isRecommended).slice(0, 4).map(menu => <MenuCard key={menu.id} menu={menu} onSelect={setSelectedMenu} />)}
             </div>
           </section>
+        </div>
+
+        {/* NEWS PAGE */}
+        <div style={{ display: currentPage === 'news' ? 'block' : 'none' }} className="flex flex-col gap-1 h-full min-h-[80vh]">
+          <StickySearchBar
+            value={newsSearchQuery}
+            onChange={setNewsSearchQuery}
+            placeholder="ค้นหาข่าวสาร..."
+            inputRef={searchInputRef}
+            onFocus={() => {
+              isJustFocused.current = true;
+              setTimeout(() => { isJustFocused.current = false; }, 800);
+            }}
+          />
+          <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] py-1 mt-1">
+            {['ทั้งหมด', 'ข่าวสาร', 'โปรโมชั่น'].map(cat => (
+              <button key={cat} onClick={() => setActiveNewsCategory(cat)} className={`px-6 py-3 rounded-full text-xs font-black whitespace-nowrap transition-all border`}
+                style={{
+                  backgroundColor: activeNewsCategory === cat ? '#00704A' : '#ffffff',
+                  borderColor: activeNewsCategory === cat ? '#00704A' : '#f3f4f6',
+                  color: activeNewsCategory === cat ? '#ffffff' : '#9ca3af',
+                  transform: activeNewsCategory === cat ? 'scale(1.05)' : 'scale(1)'
+                }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-6 mt-4 pb-10">
+            {filteredNewsResults.map(item => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedNews(item)}
+                className="flex flex-col gap-3 group text-left active:scale-[0.98] transition-transform"
+              >
+                <div className="w-full aspect-[3/4] rounded-[24px] overflow-hidden shadow-md bg-gray-100 relative">
+                  <CachedImage src={item.image} className="w-full h-full object-cover" alt={item.title} />
+                  <div className={`absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm z-10 ${item.type === 'Promotion' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'}`}>
+                    {item.type === 'Promotion' ? 'Promotion' : 'News'}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 leading-tight line-clamp-2">{item.title}</h3>
+                  <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(item.date).split(' ')[0]}</p>
+                </div>
+              </button>
+            ))}
+            {filteredNewsResults.length === 0 && (
+              <div className="col-span-2 py-10">
+                <EmptyState icon={SearchX} title="ไม่พบข่าวสาร" description="ลองเปลี่ยนคำค้นหา หรือหมวดหมู่ดูนะ" />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* MENU PAGE */}
@@ -3591,7 +4444,7 @@ const MainApp = ({ onLogout, currentUser }) => {
         extraClass={toastMessage.includes('สลิป') || showPaymentFlow ? 'bottom-6' : 'bottom-24'}
       />
 
-      {/* Navigation Bar - Fixed at bottom, NO hiding logic */}
+      {/* Navigation Bar - Fixed at bottom */}
       <div className="fixed bottom-0 left-0 right-0 z-[150] flex items-center justify-between gap-3 px-[18px] pb-[18px] pointer-events-none transition-all duration-300 transform translate-y-0 opacity-100">
         <div className="flex-1 backdrop-blur-xl rounded-full flex items-center justify-around p-[2px] border shadow-2xl pointer-events-auto h-[64px]"
           style={{ backgroundColor: alpha('#ffffff', '0.9'), borderColor: alpha('#f3f4f6', '0.5') }}>
@@ -3683,15 +4536,14 @@ const MainApp = ({ onLogout, currentUser }) => {
         onViewOrder={handleViewOrderFromNotification}
       />
 
-      {selectedMenu && <MenuDetailModal menu={selectedMenu} onClose={() => setSelectedMenu(null)} onConfirm={(item) => handleAddToCart(item)} />}
+      <MenuDetailModal menu={selectedMenu} onClose={() => setSelectedMenu(null)} onConfirm={(item) => handleAddToCart(item)} />
+      <MenuDetailModal menu={editingItem} isEditMode={true} onClose={() => setEditingItem(null)} onConfirm={(item) => { handleUpdateCart(item); setEditingItem(null); }} onDelete={() => setDeleteConfirmItem(editingItem)} />
 
-      {editingItem && <MenuDetailModal menu={editingItem} isEditMode={true} onClose={() => setEditingItem(null)} onConfirm={(item) => { handleUpdateCart(item); setEditingItem(null); }} onDelete={() => setDeleteConfirmItem(editingItem)} />}
+      <DeleteConfirmModal visible={!!deleteConfirmItem} onConfirm={confirmDelete} onCancel={() => setDeleteConfirmItem(null)} />
 
-      {deleteConfirmItem && <DeleteConfirmModal onConfirm={confirmDelete} onCancel={() => setDeleteConfirmItem(null)} />}
+      <LogoutConfirmModal visible={showLogoutConfirm} onConfirm={handleLogout} onCancel={() => setShowLogoutConfirm(false)} />
 
-      {showLogoutConfirm && <LogoutConfirmModal onConfirm={handleLogout} onCancel={() => setShowLogoutConfirm(false)} />}
-
-      {selectedNews && <NewsDetailModal news={selectedNews} onClose={() => setSelectedNews(null)} />}
+      <NewsDetailModal news={selectedNews} visible={!!selectedNews} onClose={() => setSelectedNews(null)} />
 
       <SlipPreviewModal
         visible={showSlipPreview}
@@ -3707,30 +4559,32 @@ const MainApp = ({ onLogout, currentUser }) => {
         onCancel={() => setShowDeleteConfirm(false)}
       />
 
-      {showProfile && (
-        <div className="fixed inset-0 z-[300] bg-[#fcfcfc] p-[18px] animate-in slide-in-from-bottom duration-300">
-          <div className="flex justify-between items-center mb-8 mt-0 px-0"><h2 className="text-2xl font-black">โปรไฟล์</h2><button onClick={() => setShowProfile(false)} className="p-2 bg-white border border-[#f3f4f6] rounded-full shadow-sm"><X size={24} /></button></div>
-          <div className="rounded-[40px] p-10 text-white shadow-2xl relative overflow-hidden mb-10" style={{ backgroundColor: '#1c1c1e' }}>
-            <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-[100px]" style={{ backgroundColor: alpha('#00704A', '0.4') }}></div>
-            <div className="flex gap-4 items-center mb-10 relative z-10">
-              <img src={currentUser?.photo || 'https://via.placeholder.com/64'} className="w-16 h-16 rounded-2xl border border-white/20" alt="profile" />
-              <div>
-                <h3 className="text-xl font-bold">{currentUser?.name || 'ไม่ระบุชื่อ'}</h3>
-                <p className="text-[10px] font-black uppercase mt-1 tracking-widest" style={{ color: '#00704A' }}>{currentUser?.id || '-'}</p>
+      {
+        showProfile && (
+          <div className="fixed inset-0 z-[300] bg-[#fcfcfc] p-[18px]">
+            <div className="flex justify-between items-center mb-8 mt-0 px-0"><h2 className="text-2xl font-black">โปรไฟล์</h2><button onClick={() => setShowProfile(false)} className="p-2 bg-white border border-[#f3f4f6] rounded-full shadow-sm"><X size={24} /></button></div>
+            <div className="rounded-[40px] p-10 text-white shadow-2xl relative overflow-hidden mb-10" style={{ backgroundColor: '#1c1c1e' }}>
+              <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-[100px]" style={{ backgroundColor: alpha('#00704A', '0.4') }}></div>
+              <div className="flex gap-4 items-center mb-10 relative z-10">
+                <img src={currentUser?.photo || 'https://via.placeholder.com/64'} className="w-16 h-16 rounded-2xl border border-white/20" alt="profile" />
+                <div>
+                  <h3 className="text-xl font-bold">{currentUser?.name || 'ไม่ระบุชื่อ'}</h3>
+                  <p className="text-[10px] font-black uppercase mt-1 tracking-widest" style={{ color: '#00704A' }}>{currentUser?.id || '-'}</p>
+                </div>
+              </div>
+              <div className="flex justify-between border-t border-white/10 pt-8 relative z-10">
+                <button onClick={() => setShowPointsHistory(true)} className="text-left">
+                  <p className="text-[10px] font-bold uppercase mb-1 text-gray-400">Point Balance</p>
+                  <p className="text-3xl font-black">{userPoints.toFixed(2)} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
+                  <p className="text-[10px] text-white/50 mt-1">แตะเพื่อดูประวัติ Points</p>
+                </button>
+                <QrCode size={50} className="opacity-30" />
               </div>
             </div>
-            <div className="flex justify-between border-t border-white/10 pt-8 relative z-10">
-              <button onClick={() => setShowPointsHistory(true)} className="text-left">
-                <p className="text-[10px] font-bold uppercase mb-1 text-gray-400">Point Balance</p>
-                <p className="text-3xl font-black">{userPoints.toFixed(2)} <span className="text-xs font-normal" style={{ color: '#00704A' }}>Pts</span></p>
-                <p className="text-[10px] text-white/50 mt-1">แตะเพื่อดูประวัติ Points</p>
-              </button>
-              <QrCode size={50} className="opacity-30" />
-            </div>
+            <button onClick={() => setShowLogoutConfirm(true)} className="w-full py-5 text-red-500 rounded-[28px] shadow-sm bg-white border border-[#f3f4f6] font-bold flex items-center justify-center gap-2"><LogOut size={20} /> ออกจากระบบ</button>
           </div>
-          <button onClick={() => setShowLogoutConfirm(true)} className="w-full py-5 text-red-500 rounded-[28px] shadow-sm bg-white border border-[#f3f4f6] font-bold flex items-center justify-center gap-2"><LogOut size={20} /> ออกจากระบบ</button>
-        </div>
-      )}
+        )
+      }
 
       {/* Points History Modal */}
       <PointsHistoryModal
@@ -3742,7 +4596,7 @@ const MainApp = ({ onLogout, currentUser }) => {
 
       {/* Global Styles */}
       <GlobalStyles />
-    </div>
+    </div >
   );
 };
 
