@@ -2644,7 +2644,7 @@ const LoginView = ({ onLoginSuccess }) => {
 
       {/* Bottom Sheet Modal */}
       <div
-        className={`fixed bottom-0 left-0 right-0 bg-white z-[420] rounded-t-[40px] p-8 shadow-[0_-10px_40px_rgba(0,0,0,0.2)] transition-transform duration-200 ease-out transform ${mode !== 'login' ? 'translate-y-0' : 'translate-y-full'} max-h-[70vh] overflow-y-auto`}
+        className={`fixed bottom-0 left-0 right-0 bg-white z-[420] rounded-t-[40px] p-8 shadow-[0_-10px_40px_rgba(0,0,0,0.2)] transition-transform duration-200 ease-out transform ${mode !== 'login' ? 'translate-y-0' : 'translate-y-full'} min-h-[75vh] overflow-y-auto`}
       >
         {/* Close Button - Hide in details steps */}
         {mode !== 'details_1' && mode !== 'details_2' && (
