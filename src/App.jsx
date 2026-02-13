@@ -1540,6 +1540,131 @@ const SlipDeleteConfirmModal = ({ visible, onConfirm, onCancel }) => {
   );
 };
 
+// --- RECEIPT MODAL ---
+const ReceiptModal = ({ visible, order, onClose }) => {
+  if (!order) return null;
+
+  return (
+    <div
+      className={`fixed inset-0 z-[400] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-black/40 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
+      onClick={onClose}
+    >
+      <div
+        className={`w-full max-w-[350px] bg-white rounded-none shadow-2xl overflow-hidden transition-transform duration-300 ease-out transform ${visible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-10'}`}
+        onClick={e => e.stopPropagation()}
+        style={{ fontFamily: "'Courier New', Courier, monospace" }}
+      >
+        {/* Receipt Header */}
+        <div className="p-6 text-center border-b border-dashed border-gray-300 bg-gray-50">
+          <div className="w-12 h-12 bg-[#00704A] text-white rounded-full flex items-center justify-center mx-auto mb-3">
+            <img src="./public/qr_slip.svg" alt="Icon" className="w-full h-full object-contain" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 uppercase tracking-widest">ใบเสร็จรับเงิน</h2>
+          <p className="text-xs text-gray-500 font-bold mt-1">CAFE APP</p>
+          <p className="text-[10px] text-gray-400 mt-2">{formatDateTime(order.createdAt)}</p>
+        </div>
+
+        {/* Receipt Body */}
+        <div className="p-6 space-y-4 bg-white">
+          <div className="flex justify-between items-end border-b border-dashed border-gray-200 pb-3">
+            <div className="text-left">
+              <p className="text-[10px] text-gray-400 uppercase">Order No.</p>
+              <p className="text-sm font-bold text-gray-900">#{order.id}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-gray-400 uppercase">Customer</p>
+              <p className="text-sm font-bold text-gray-900 line-clamp-1">{MOCK_DATA.user.name}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {(order.items || []).map((item, idx) => (
+              <div key={idx} className="flex justify-between text-xs font-bold text-gray-700">
+                <div className="flex-1">
+                  <p>{item.name}</p>
+                  <p className="text-[10px] text-gray-500 font-normal">
+                    {item.selectedType}
+                    {item.selectedAddOns && ` + ${item.selectedAddOns}`}
+                  </p>
+                  {item.note && <p className="text-[10px] text-gray-400 font-normal">หมายเหตุ: {item.note}</p>}
+                </div>
+                <div className="flex-shrink-0 ml-4">{formatBaht(item.price)}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-dashed border-gray-200 pt-3 space-y-1">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>ยอดรวม</span>
+              <span>{formatBaht(order.subtotal)}</span>
+            </div>
+            {(() => {
+              const totalDiscount = order.discount || 0;
+              const pointsDiscount = order.promotion?.points_discount || 0;
+              const codeDiscount = Math.max(0, totalDiscount - pointsDiscount);
+
+              return (
+                <>
+                  {codeDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-[#00704A]">
+                      <span>#ส่วนลดโปรโมชั่น {order.promotion?.code ? `(${order.promotion.code})` : ''}</span>
+                      <span>-{formatBaht(codeDiscount)}</span>
+                    </div>
+                  )}
+                  {pointsDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-[#00704A]">
+                      <span>#ส่วนลดจาก Point</span>
+                      <span>-{formatBaht(pointsDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs text-[#00704A]">
+                    <span>ส่วนลดทั้งหมด</span>
+                    <span>{totalDiscount > 0 ? `-${formatBaht(totalDiscount)}` : formatBaht(0)}</span>
+                  </div>
+                </>
+              );
+            })()}
+            <div className="flex justify-between text-sm font-black text-gray-900 pt-2 border-t border-dashed border-gray-200 mt-2">
+              <span>ยอดสุทธิ</span>
+              <span>{formatBaht(order.total)}</span>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 p-3 rounded-lg text-center border border-gray-100">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wider">ชำระโดย</p>
+            <p className="text-xs font-bold text-gray-900 mt-0.5">
+              {order.paymentMethod === 'cash' ? 'เงินสด (Cash)' : 'สแกนจ่าย (PromptPay)'}
+            </p>
+          </div>
+        </div>
+
+        {/* Receipt Footer */}
+        <div className="p-4 bg-gray-900 text-white text-center">
+          <p className="text-[10px] text-white/60 mb-3">ขอบคุณที่ใช้บริการ</p>
+          <button
+            onClick={onClose}
+            className="w-full py-3 rounded-full bg-white text-gray-900 text-xs font-bold active:scale-95 transition-transform"
+          >
+            ปิด
+          </button>
+        </div>
+
+        {/* Decorative jagged edge at bottom */}
+        <div
+          className="h-4 w-full bg-gray-900 relative"
+          style={{
+            marginTop: '-1px',
+            background: 'linear-gradient(135deg, transparent 75%, #111827 75%) 0 50%, linear-gradient(-135deg, transparent 75%, #111827 75%) 0 50%',
+            backgroundSize: '10px 10px, 10px 10px',
+            backgroundRepeat: 'repeat-x',
+            transform: 'rotate(180deg)'
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
 const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg, pointTransactions = [] }) => {
   const [cachedOrder, setCachedOrder] = useState(order);
   const [paymentMethod, setPaymentMethod] = useState(order?.paymentMethod || 'cash');
@@ -1553,6 +1678,7 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
   const [slipPreviewUrl, setSlipPreviewUrl] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   useEffect(() => {
     if (visible && order) {
@@ -1566,6 +1692,7 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
       setSlipPreviewUrl('');
       setShowDeleteConfirm(false);
       setShowImageViewer(false);
+      setShowReceipt(false);
     }
   }, [visible, order]);
 
@@ -1722,10 +1849,14 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
             </div>
             <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-5 space-y-3">
               {(activeOrder.items || []).map((item, idx) => (
-                <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-2 last:border-0 last:pb-0">
+                <div key={item.cartId || idx} className="flex flex-col gap-1 border-b border-gray-100/50 pb-3 last:border-0 last:pb-0">
                   <div className="flex justify-between gap-4 text-sm font-bold text-gray-700">
-                    <span className="line-clamp-1 flex-1">{item.name} {item.note && <span className="text-gray-400 font-normal"> + {item.note}</span>}</span>
+                    <span className="line-clamp-1 flex-1">{item.name}</span>
                     <span className="flex-shrink-0">{formatBaht(item.price)}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 font-normal pl-2 border-l-2 border-gray-200">
+                    <p>{item.selectedType} {item.selectedAddOns ? `+ ${item.selectedAddOns}` : ''}</p>
+                    {item.note && <p className="text-gray-400">หมายเหตุ: {item.note}</p>}
                   </div>
                 </div>
               ))}
@@ -1893,6 +2024,17 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
                 </div>
               )}
             </div>
+
+            {/* View Receipt Button */}
+            {(activeOrder.status === 'paid' || activeOrder.status === 'completed') && (
+              <button
+                onClick={() => setShowReceipt(true)}
+                className="w-full py-4 rounded-2xl border-2 border-[#00704A] text-[#00704A] font-black text-sm active:scale-95 transition-transform flex items-center justify-center gap-2"
+              >
+                <Receipt size={18} />
+                ดูใบเสร็จ
+              </button>
+            )}
           </div>
 
         </div>
@@ -1919,6 +2061,12 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
           onConfirm={handleConfirmDelete}
           onCancel={() => setShowDeleteConfirm(false)}
         />
+
+        <ReceiptModal
+          visible={showReceipt}
+          order={activeOrder}
+          onClose={() => setShowReceipt(false)}
+        />
       </div>
 
     </>
@@ -1927,10 +2075,40 @@ const OrderDetailSheet = ({ order, visible, onClose, onUpdateOrder, showToastMsg
 
 // --- ORDER HISTORY MODAL ---
 const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef(null);
+
+  // Reset search when modal closes
+  useEffect(() => {
+    if (!visible) setSearchQuery('');
+  }, [visible]);
+
+  // Filter orders based on search query
+  const filteredOrders = useMemo(() => {
+    if (!searchQuery.trim()) return orders;
+    const q = searchQuery.trim().toLowerCase();
+    return orders.filter(order => {
+      // Search by order ID
+      if (String(order.id).toLowerCase().includes(q)) return true;
+      // Search by item names
+      if ((order.items || []).some(item => item.name?.toLowerCase().includes(q))) return true;
+      // Search by payment method
+      const payLabel = order.paymentMethod === 'cash' ? 'เงินสด' : 'promptpay';
+      if (payLabel.includes(q)) return true;
+      // Search by status label
+      const statusMeta = ORDER_STATUS_META[order.status];
+      if (statusMeta?.label?.toLowerCase().includes(q)) return true;
+      // Search by total amount
+      if (String(order.total).includes(q)) return true;
+      return false;
+    });
+  }, [orders, searchQuery]);
+
   return (
     <>
       <div
         className={`fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(252,252,252,0.0)' }}
         onClick={onClose}
       />
       <div className={`fixed inset-0 z-[201] pointer-events-none flex items-end justify-center`}>
@@ -1944,12 +2122,40 @@ const OrderHistoryModal = ({ orders, visible, onClose, onViewDetail }) => {
               <X size={20} />
             </button>
           </div>
+
+          {/* Search Bar */}
+          {orders.length > 0 && (
+            <div className="px-6 pt-4 pb-1 flex-shrink-0">
+              <div className="relative flex items-center bg-[#fcfcfc] rounded-2xl px-4 h-[46px] border border-[#f3f4f6]">
+                <Search size={18} className="text-gray-400 flex-shrink-0 mr-3" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="ค้นหาออเดอร์..."
+                  className="flex-1 bg-transparent outline-none text-sm font-medium text-gray-800 placeholder:text-gray-400"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                    className="ml-2 w-7 h-7 flex items-center justify-center rounded-full bg-gray-200 active:scale-90 transition-transform"
+                  >
+                    <X size={14} className="text-gray-500" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-8">
             {orders.length === 0 ? (
               <EmptyState icon={History} title="ยังไม่มีประวัติออเดอร์" description="เมื่อคุณสั่งซื้อเสร็จสิ้น ประวัติออเดอร์จะแสดงที่นี่" />
+            ) : filteredOrders.length === 0 ? (
+              <EmptyState icon={Search} title="ไม่พบออเดอร์" description={`ไม่พบผลลัพธ์สำหรับ "${searchQuery}"`} />
             ) : (
               <div className="space-y-4">
-                {orders.map(order => (
+                {filteredOrders.map(order => (
                   <button
                     key={order.id}
                     onClick={() => onViewDetail(order)}
@@ -4443,6 +4649,9 @@ const MainApp = ({ onLogout, currentUser }) => {
         type={toastType}
         extraClass={toastMessage.includes('สลิป') || showPaymentFlow ? 'bottom-6' : 'bottom-24'}
       />
+
+      {/* Bottom Gradient Overlay */}
+      <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/20 to-transparent z-[140] pointer-events-none" />
 
       {/* Navigation Bar - Fixed at bottom */}
       <div className="fixed bottom-0 left-0 right-0 z-[150] flex items-center justify-between gap-3 px-[18px] pb-[18px] pointer-events-none transition-all duration-300 transform translate-y-0 opacity-100">
