@@ -1040,7 +1040,7 @@ const PaymentFlowModal = ({
           const timeout = setTimeout(() => reject(new Error('timeout')), 3000);
           iconImg.onload = () => { clearTimeout(timeout); iconLoaded = true; resolve(); };
           iconImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
-          iconImg.src = '/icon/qr_slip.svg';
+          iconImg.src = 'https://raw.githubusercontent.com/Moviifox/webappcafe/refs/heads/main/public/qr_slip.svg';
         });
       } catch {
         iconLoaded = false;
@@ -1557,7 +1557,7 @@ const ReceiptModal = ({ visible, order, onClose }) => {
         {/* Receipt Header */}
         <div className="p-6 text-center border-b border-dashed border-gray-300 bg-gray-50">
           <div className="w-12 h-12 bg-[#00704A] text-white rounded-full flex items-center justify-center mx-auto mb-3">
-            <img src="./public/pwa-192x192.png" alt="Icon" className="w-full h-full object-contain" />
+            <img src="https://raw.githubusercontent.com/Moviifox/webappcafe/refs/heads/main/public/qr_slip.svg" alt="Icon" className="w-full h-full object-contain" />
           </div>
           <h2 className="text-lg font-bold text-gray-900 uppercase tracking-widest">ใบเสร็จรับเงิน</h2>
           <p className="text-xs text-gray-500 font-bold mt-1">CAFE APP</p>
