@@ -1664,7 +1664,7 @@ const ReceiptModal = ({ visible, order, onClose }) => {
 
   return (
     <div
-      className={`fixed inset-0 z-[400] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-[#fcfcfc]/20 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
+      className={`fixed inset-0 z-[400] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-[#fcfcfc]/50 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
       onClick={onClose}
     >
       <div
