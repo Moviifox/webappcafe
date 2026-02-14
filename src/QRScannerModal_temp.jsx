@@ -63,7 +63,7 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
     return (
         <>
             <div
-                className={`fixed inset-0 z-[400] bg-black/90 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+                className={`fixed inset-0 z-[400] bg-[#fcfcfc] backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
                 onClick={onClose}
             />
             <div className={`fixed inset-0 z-[401] pointer-events-none flex items-center justify-center p-4`}>

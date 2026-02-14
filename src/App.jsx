@@ -843,16 +843,16 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
   return (
     <>
       <div
-        className={`fixed inset-0 z-[400] bg-black/90 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 z-[400] bg-[#fcfcfc]/20 backdrop-blur-sm transition-opacity duration-300 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
       <div className={`fixed inset-0 z-[401] pointer-events-none flex items-center justify-center p-4`}>
         <div
-          className={`w-full max-w-sm bg-white rounded-[32px] overflow-hidden shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${visible ? 'scale-100 pointer-events-auto' : 'scale-90 pointer-events-none'}`}
+          className={`w-full max-w-sm bg-white rounded-[32px] border border-gray-200 overflow-hidden shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${visible ? 'scale-100 pointer-events-auto' : 'scale-90 pointer-events-none'}`}
         >
           <div className="p-4 flex items-center justify-between border-b border-gray-100">
             <h3 className="font-black text-gray-900 ml-2">สแกน QR Code</h3>
-            <button onClick={onClose} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
+            <button onClick={onClose} className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 active:scale-95 transition-transform">
               <X size={20} />
             </button>
           </div>
@@ -877,7 +877,7 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
               </div>
             )}
             <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none">
-              <div className="absolute inset-0 border-2 border-white/50 rounded-lg"></div>
+              <div className="absolute inset-0 rounded-lg"></div>
               <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#00704A] -mt-1 -ml-1 rounded-tl-lg"></div>
               <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#00704A] -mt-1 -mr-1 rounded-tr-lg"></div>
               <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#00704A] -mb-1 -ml-1 rounded-bl-lg"></div>
