@@ -1038,6 +1038,7 @@ const PaymentFlowModal = ({
       try {
         await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error('timeout')), 3000);
+          iconImg.crossOrigin = 'anonymous'; // Fix CORS for external image
           iconImg.onload = () => { clearTimeout(timeout); iconLoaded = true; resolve(); };
           iconImg.onerror = () => { clearTimeout(timeout); reject(new Error('error')); };
           iconImg.src = 'https://raw.githubusercontent.com/Moviifox/webappcafe/refs/heads/main/public/qr_slip.svg';
