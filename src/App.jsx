@@ -1664,11 +1664,11 @@ const ReceiptModal = ({ visible, order, onClose }) => {
 
   return (
     <div
-      className={`fixed inset-0 z-[400] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-black/40 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
+      className={`fixed inset-0 z-[400] flex items-center justify-center backdrop-blur-sm p-6 transition-all duration-300 ${visible ? 'bg-[#fcfcfc]/20 opacity-100 pointer-events-auto' : 'bg-transparent opacity-0 pointer-events-none'}`}
       onClick={onClose}
     >
       <div
-        className={`w-full max-w-[350px] bg-white rounded-none shadow-2xl overflow-hidden transition-transform duration-300 ease-out transform ${visible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-10'}`}
+        className={`w-full max-w-[350px] bg-white border border-gray-200 rounded-none shadow-2xl overflow-hidden transition-transform duration-300 ease-out transform ${visible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-10'}`}
         onClick={e => e.stopPropagation()}
         style={{ fontFamily: "'Courier New', Courier, monospace" }}
       >
