@@ -857,7 +857,7 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
             </button>
           </div>
 
-          <div className="relative bg-black aspect-square overflow-hidden">
+          <div className="relative bg-black w-full overflow-hidden" style={{ aspectRatio: '1/1' }}>
             <div id="reader" className="w-full h-full"></div>
             {!scanning && !error && (
               <div className="absolute inset-0 flex items-center justify-center text-white/50">
