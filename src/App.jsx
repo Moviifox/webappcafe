@@ -799,7 +799,6 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
             {
               fps: 10,
               qrbox: { width: 250, height: 250 },
-              aspectRatio: 1.0
             },
             (decodedText, decodedResult) => {
               // Success callback
@@ -857,8 +856,8 @@ const QRScannerModal = ({ visible, onClose, onScan }) => {
             </button>
           </div>
 
-          <div className="relative bg-black w-full h-0 pb-[100%] overflow-hidden">
-            <div id="reader" className="absolute inset-0 w-full h-full"></div>
+          <div className="relative bg-black w-full overflow-hidden" style={{ aspectRatio: '1/1' }}>
+            <div id="reader" className="w-full h-full overflow-hidden [&_video]:w-full [&_video]:h-full [&_video]:object-cover"></div>
             {!scanning && !error && (
               <div className="absolute inset-0 flex items-center justify-center text-white/50">
                 <Loader2 className="animate-spin" size={32} />
